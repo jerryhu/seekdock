@@ -1,0 +1,44 @@
+# Dependencies and build output
+node_modules/
+dist/
+out/
+
+# Test output and caches
+.vscode-test/
+coverage/
+.nyc_output/
+.eslintcache
+*.tsbuildinfo
+
+# Local tooling
+.codegraph/
+.agents/
+.claude/
+.dsh-webview-diag.json
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Downloaded runtime payloads and atomic preparation directories
+resources/runtime/**/deepseek-harness-sdk-runtime-*
+resources/runtime/.prepare-runtime-*
+
+# Logs and process files
+*.log
+*.pid
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Extension packages
+*.vsix
+.github/skills
+copilot-instructions.md
+clean-code.instructions.md
+AGENTS.md
+skills
+skills-lock.json
+.mcp.json

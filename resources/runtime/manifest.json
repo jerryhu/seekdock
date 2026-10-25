@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "sdkVersion": "0.2.1-rc.2",
+  "runtimePackage": "deepseek-harness-runtime-bin",
+  "runtimeVersion": "0.2.1rc2",
+  "release": {
+    "tag": "runtime-v0.2.1rc2",
+    "assetBaseUrl": "https://github.com/jerryhu/seekdock/releases/download/runtime-v0.2.1rc2"
+  },
+  "targets": {
+    "linux-x64": {
+      "executable": "deepseek-harness-sdk-runtime-linux-x64",
+      "ripgrep": "deepseek-harness-sdk-runtime-linux-x64-rg"
+    },
+    "linux-arm64": {
+      "executable": "deepseek-harness-sdk-runtime-linux-arm64",
+      "ripgrep": "deepseek-harness-sdk-runtime-linux-arm64-rg"
+    },
+    "macos-arm64": {
+      "executable": "deepseek-harness-sdk-runtime-macos-arm64",
+      "ripgrep": "deepseek-harness-sdk-runtime-macos-arm64-rg",
+      "spawnHelper": "deepseek-harness-sdk-runtime-macos-arm64-spawn-helper",
+      "artifacts": {
+        "executable": {
+          "asset": "deepseek-harness-sdk-runtime-macos-arm64.gz",
+          "size": 311902944,
+          "sha256": "b5ed16a1edfef5824d96820b20b4d6d333e714210c5653f6ececeb45b213d275"
+        },
+        "ripgrep": {
+          "asset": "deepseek-harness-sdk-runtime-macos-arm64-rg.gz",
+          "size": 4528512,
+          "sha256": "6ef40346bf31fcce79d9614c7745c198542925a0c7d4911e1ffe794c53392ac1"
+        },
+        "spawnHelper": {
+          "asset": "deepseek-harness-sdk-runtime-macos-arm64-spawn-helper.gz",
+          "size": 50480,
+          "sha256": "08bc83a084651d095645010d34783f94b9af443614747e953e66d6578027e999"
+        }
+      }
+    },
+    "macos-x64": {
+      "executable": "deepseek-harness-sdk-runtime-macos-x64",
+      "ripgrep": "deepseek-harness-sdk-runtime-macos-x64-rg",
+      "spawnHelper": "deepseek-harness-sdk-runtime-macos-x64-spawn-helper"
+    },
+    "win-x64": {
+      "executable": "deepseek-harness-sdk-runtime-win-x64.exe",
+      "ripgrep": "deepseek-harness-sdk-runtime-win-x64-rg.exe"
+    }
+  }
+}

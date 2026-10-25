@@ -1,0 +1,38 @@
+# SeekDock overlay for the shipped full SDK profile. The official sdk profile
+# provides the normal dsh-base composition; this patch adds the process-local
+# assistant stream used by the chat UI and the user-editable SeekDock persona.
+
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    personaPrefix: ''
+
+- id: skill-filesystem
+  config:
+    includeDefaultRoots: false
+    customSkillDirs:
+      - !!js process.env.SEEKDOCK_WORKSPACE_SKILL_DIR
+      - !!js process.env.SEEKDOCK_USER_SKILL_DIR
+
+# The standard SDK wire carries durable session events only. These bridges add
+# process-local assistant frames, the private stop control, and the permission
+# and approval round trips used by the composer UI.
+- insert:
+    - id: seekdock-cancel-bridge
+      name: ./seekdock-cancel-bridge.mjs
+    - id: seekdock-assistant-stream-bridge
+      name: ./seekdock-assistant-stream-bridge.mjs
+    - id: seekdock-system-prompt
+      name: ./seekdock-system-prompt.mjs
+    - id: seekdock-auto-review
+      name: ./seekdock-auto-review.mjs
+    - id: seekdock-permission-bridge
+      name: ./seekdock-permission-bridge.mjs
+    - id: seekdock-plan-bridge
+      name: ./seekdock-plan-bridge.mjs
+    - id: seekdock-skill-bridge
+      name: ./seekdock-skill-bridge.mjs
+    - id: seekdock-session-title-bridge
+      name: ./seekdock-session-title-bridge.mjs
+    - id: seekdock-approval-bridge
+      name: ./seekdock-approval-bridge.mjs

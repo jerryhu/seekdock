@@ -1,0 +1,164 @@
+{
+  "name": "seekdock",
+  "displayName": "SeekDock: DeepSeek Harness AI Coding Assistant for VS Code",
+  "description": "Custom DeepSeek Harness UI for chat, agent workflows, code editing, and tool calling inside VS Code",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "ai-coding",
+    "agent",
+    "code-assistant",
+    "coding-agent",
+    "vscode-ai"
+  ],
+  "publisher": "JerryHu",
+  "license": "MIT",
+  "version": "0.0.1",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jerryhu/seekdock.git"
+  },
+  "engines": {
+    "vscode": "^1.139.0"
+  },
+  "dshCompatibility": {
+    "sdkClient": "0.2.1-rc.2",
+    "sdkProtocol": "0.2.1-rc.2",
+    "runtime": "0.2.1rc2",
+    "experimentalAutoReview": "0.2.1-rc.2",
+    "sessionFormat": 4
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:seekdock.chatView"
+  ],
+  "main": "./dist/extension.js",
+  "icon": "resources/seekdock-icon.png",
+  "contributes": {
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "seekdockChat",
+          "title": "DeepSeek",
+          "icon": "resources/seekdock.svg"
+        }
+      ]
+    },
+    "views": {
+      "seekdockChat": [
+        {
+          "type": "webview",
+          "id": "seekdock.chatView",
+          "name": "SeekDock",
+          "icon": "resources/seekdock.svg",
+          "initialSize": 480,
+          "contextualTitle": "SeekDock"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "seekdock.openSidebar",
+        "title": "Open DeepSeek",
+        "category": "SeekDock",
+        "icon": {
+          "light": "resources/seekdock-light.svg",
+          "dark": "resources/seekdock-dark.svg"
+        }
+      },
+      {
+        "command": "seekdock.newChat",
+        "title": "New Chat",
+        "category": "SeekDock",
+        "icon": "$(add)"
+      },
+      {
+        "command": "seekdock.openSettings",
+        "title": "Settings",
+        "category": "SeekDock",
+        "icon": "$(settings-gear)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "seekdock.openSidebar",
+        "key": "ctrl+alt+l",
+        "mac": "cmd+alt+l"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "seekdock.newChat",
+          "when": "false"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "seekdock.openSidebar",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "seekdock.newChat",
+          "when": "view == seekdock.chatView",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && npm run prepare-runtime && npm run verify-runtime && node esbuild.js --production && npm run smoke-runtime",
+    "package:mac-arm64": "npx --yes @vscode/vsce package --target darwin-arm64 --allow-missing-repository",
+    "publish:marketplace": "npx --yes @vscode/vsce publish --readme MARKETPLACE_README.md",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint && npm run prepare-runtime && npm run test:runtime-prepare",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "prepare-runtime": "node scripts/prepare-runtime.mjs",
+    "build-runtime-assets": "node scripts/build-runtime-assets.mjs",
+    "test:runtime-prepare": "node --test scripts/prepare-runtime.test.mjs",
+    "smoke-runtime": "node scripts/smoke-runtime.mjs",
+    "verify-runtime": "node scripts/verify-runtime.mjs",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-sdk-client": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-sdk-protocol": "0.2.1-rc.2",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "@types/vscode": "^1.139.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.5.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1"
+  },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.6"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-session": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-session-persistence": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-session-title": "0.2.1-rc.2",
+    "lucide-preact": "1.59.0",
+    "preact": "10.29.8"
+  }
+}

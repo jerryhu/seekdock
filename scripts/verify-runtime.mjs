@@ -4,19 +4,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-	hostRuntimeTarget,
 	loadRuntimeManifest,
 	verifyPreparedRuntime,
 } from './prepare-runtime.mjs';
+import {
+	hostRuntimeTarget,
+	resolveRuntimeTarget,
+} from './runtime-targets.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const manifest = await loadRuntimeManifest(root);
-const target = process.argv[2] ?? hostRuntimeTarget();
-if (target === undefined) {
-	throw new Error(`No SeekDock runtime target is defined for ${process.platform}-${process.arch}.`);
-}
+const target = resolveRuntimeTarget(process.argv[2]);
 
 const runtime = await verifyPreparedRuntime({ root, target });
+if (target !== hostRuntimeTarget()) {
+	console.log(`Verified DeepSeek Harness ${target} runtime files; execution requires that platform.`);
+	process.exit(0);
+}
 const temporaryHome = mkdtempSync(join(tmpdir(), 'seekdock-version-check-'));
 const result = spawnSync(runtime.executablePath, ['--version'], {
 	encoding: 'utf8',

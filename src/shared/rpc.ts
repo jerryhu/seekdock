@@ -10,6 +10,12 @@ import {
 	isPositiveInteger,
 	isRecord,
 } from './value-validation.ts';
+import {
+	isWorkspaceChangeSet,
+	isWorkspaceFileDiff,
+	type WorkspaceChangeSet,
+	type WorkspaceFileDiff,
+} from './workspace-changes.ts';
 
 /** Lifecycle of one tool invocation shown in the chat timeline. */
 export type ToolCallStatus = 'running' | 'completed' | 'error' | 'awaiting-approval';
@@ -145,6 +151,20 @@ export type WebviewToHostMessage =
 		toolCallId?: string;
 		decision: ApprovalAnswer;
 	}
+	| {
+		type: 'requestWorkspaceFileDiff';
+		requestId: string;
+		sessionId: string;
+		seq: number;
+		index: number;
+	}
+	| {
+		type: 'openWorkspaceFileDiff';
+		requestId: string;
+		sessionId: string;
+		seq: number;
+		index: number;
+	}
 	| { type: 'openExternal'; requestId: string; url: string };
 
 /** Messages posted by the extension host to the chat Webview. */
@@ -257,6 +277,17 @@ export type HostToWebviewMessage =
 		current: ModelSelection;
 		error?: string;
 	}
+	| {
+		type: 'workspaceChanges';
+		requestId: string;
+		changes: WorkspaceChangeSet;
+	}
+	| {
+		type: 'workspaceFileDiff';
+		requestId: string;
+		diff: WorkspaceFileDiff | null;
+	}
+	| { type: 'workspaceFileDiffError'; requestId: string; message: string }
 	| { type: 'responseEnd'; requestId: string; interrupted?: boolean }
 	| {
 		type: 'cancelResult';
@@ -317,6 +348,12 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHostMe
 				&& isNonEmptyString(value.approvalId)
 				&& (value.toolCallId === undefined || isNonEmptyString(value.toolCallId))
 				&& (value.decision === 'allow' || value.decision === 'deny');
+		case 'requestWorkspaceFileDiff':
+		case 'openWorkspaceFileDiff':
+			return isNonEmptyString(value.requestId)
+				&& isNonEmptyString(value.sessionId)
+				&& isNonNegativeInteger(value.seq)
+				&& isNonNegativeInteger(value.index);
 		case 'openExternal':
 			return isNonEmptyString(value.requestId) && isNonEmptyString(value.url);
 		default:
@@ -438,6 +475,14 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebviewMe
 		case 'modelSelectionState':
 			return isModelSelection(value.current)
 				&& (value.error === undefined || typeof value.error === 'string');
+		case 'workspaceChanges':
+			return isNonEmptyString(value.requestId)
+				&& isWorkspaceChangeSet(value.changes);
+		case 'workspaceFileDiff':
+			return isNonEmptyString(value.requestId)
+				&& (value.diff === null || isWorkspaceFileDiff(value.diff));
+		case 'workspaceFileDiffError':
+			return isNonEmptyString(value.requestId) && typeof value.message === 'string';
 		case 'error':
 			return isNonEmptyString(value.requestId) && typeof value.message === 'string';
 		case 'newChat':

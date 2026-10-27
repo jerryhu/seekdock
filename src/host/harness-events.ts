@@ -38,6 +38,7 @@ export type HarnessActivityEvent =
 		toolCallId?: string;
 		decision: ApprovalDecision;
 	}
+	| { type: 'workspaceChanges'; turn: number; seq: number }
 	| { type: 'permissionChanged' }
 	| { type: 'planModeChanged' }
 	| { type: 'turnError'; message: string };
@@ -91,6 +92,10 @@ export class HarnessEventTranslator {
 				return this.approvalRequest(data);
 			case 'approval/decided':
 				return this.approvalResolved(data);
+			case 'workspace/changes':
+				return isPositiveInteger(data.turn) && isNonNegativeInteger(event.seq)
+					? [{ type: 'workspaceChanges', turn: data.turn, seq: event.seq }]
+					: [];
 			case 'permission/preset':
 			case 'sandbox/mode':
 			case 'approval/policy':

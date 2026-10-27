@@ -3,9 +3,9 @@
 	--seek-accent: var(--vscode-textLink-foreground, #4d6bfe);
 	--seek-brand: #4d6bfe;
 	--seek-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.28));
-	--seek-muted: var(--vscode-descriptionForeground);
-	--seek-surface: var(--vscode-input-background);
-	--seek-surface-raised: var(--vscode-editorWidget-background);
+	--seek-muted: var(--vscode-descriptionForeground, GrayText);
+	--seek-surface: var(--vscode-input-background, Field);
+	--seek-surface-raised: var(--vscode-editorWidget-background, Canvas);
 }
 
 * {
@@ -740,7 +740,9 @@ a:hover {
 
 .user-message {
 	display: flex;
-	justify-content: flex-end;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 4px;
 }
 
 .user-bubble {
@@ -752,6 +754,25 @@ a:hover {
 	background: var(--seek-surface);
 	border: 1px solid var(--vscode-input-border, var(--seek-border));
 	border-radius: 8px;
+}
+
+.user-message-meta {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	min-height: 22px;
+	opacity: 0.72;
+	transition: opacity 100ms ease;
+}
+
+.user-message:hover .user-message-meta,
+.user-message-meta:focus-within {
+	opacity: 1;
+}
+
+.user-message-meta .icon-button {
+	width: 22px;
+	height: 22px;
 }
 
 .assistant-message {
@@ -792,6 +813,51 @@ a:hover {
 }
 
 .assistant-duration svg {
+	flex: none;
+}
+
+.message-timestamp {
+	color: var(--seek-muted);
+	font-size: 11px;
+	line-height: 1.4;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+.selection-copy-menu {
+	position: fixed;
+	z-index: 60;
+	min-width: 120px;
+	padding: 4px;
+	background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+	border: 1px solid var(--vscode-menu-border, var(--seek-border));
+	border-radius: 5px;
+	box-shadow: 0 5px 16px rgba(0, 0, 0, 0.24);
+}
+
+.selection-copy-menu-item {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	width: 100%;
+	min-height: 28px;
+	padding: 4px 8px;
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	font-size: 12px;
+	text-align: left;
+	background: transparent;
+	border: 0;
+	border-radius: 3px;
+	cursor: pointer;
+}
+
+.selection-copy-menu-item:hover,
+.selection-copy-menu-item:focus-visible {
+	color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+	background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+}
+
+.selection-copy-menu-item svg {
 	flex: none;
 }
 
@@ -903,7 +969,7 @@ a:hover {
 
 .reasoning-body {
 	max-height: 320px;
-	margin: 0 0 4px 2px;
+	margin: 4px 0 4px 22px;
 	padding: 2px 0 4px 10px;
 	overflow: auto;
 	border-left: 1px solid var(--seek-border);
@@ -930,9 +996,234 @@ a:hover {
 	overflow-wrap: anywhere;
 }
 
+.workspace-changes {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	margin-top: 12px;
+	padding-top: 10px;
+	border-top: 1px solid var(--seek-border);
+}
+
+.workspace-changes-heading {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+	min-height: 24px;
+	font-size: 11.5px;
+}
+
+.workspace-changes-mark {
+	display: inline-flex;
+	flex: none;
+	color: var(--seek-muted);
+}
+
+.workspace-changes-title {
+	flex: 1;
+	min-width: 0;
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.workspace-changes-totals,
+.workspace-change-counts {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	font-variant-numeric: tabular-nums;
+}
+
+.workspace-added {
+	color: var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-terminal-ansiGreen));
+}
+
+.workspace-deleted {
+	color: var(--vscode-gitDecoration-deletedResourceForeground, var(--vscode-terminal-ansiRed));
+}
+
+.workspace-changes-list {
+	display: flex;
+	flex-direction: column;
+	margin: 4px 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.workspace-change-item {
+	position: relative;
+	min-width: 0;
+}
+
+.workspace-change-row {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	width: 100%;
+	min-height: 28px;
+	padding: 4px 5px;
+	color: var(--seek-muted);
+	text-align: left;
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.workspace-change-row:hover,
+.workspace-change-row:focus-visible {
+	color: var(--vscode-foreground);
+	background: var(--vscode-list-hoverBackground);
+}
+
+.workspace-change-row.unavailable {
+	cursor: default;
+}
+
+.workspace-change-icon {
+	flex: none;
+	color: var(--seek-muted);
+}
+
+.workspace-change-path {
+	flex: 1;
+	min-width: 0;
+	font-family: var(--vscode-editor-font-family);
+	font-size: 11.5px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.workspace-change-counts,
+.workspace-change-status {
+	font-family: var(--vscode-editor-font-family);
+	font-size: 10.5px;
+}
+
+.workspace-change-status {
+	flex: none;
+	color: var(--seek-muted);
+}
+
+.workspace-changes-toggle {
+	display: inline-flex;
+	align-self: flex-start;
+	align-items: center;
+	gap: 5px;
+	min-height: 25px;
+	margin: 2px 0 0 3px;
+	padding: 2px 5px;
+	color: var(--seek-muted);
+	font-size: 10.5px;
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.workspace-changes-toggle:hover {
+	color: var(--vscode-foreground);
+	background: var(--vscode-list-hoverBackground);
+}
+
+.workspace-diff-preview {
+	position: fixed;
+	z-index: 900;
+	display: flex;
+	flex-direction: column;
+	max-height: min(340px, calc(100vh - 16px));
+	padding: 0;
+	overflow: hidden;
+	color: var(--vscode-foreground);
+	background: var(--vscode-editorWidget-background);
+	border: 1px solid var(--vscode-widget-border, var(--seek-border));
+	border-radius: 7px;
+	box-shadow: 0 8px 26px rgba(0, 0, 0, 0.3);
+}
+
+.workspace-diff-preview.above {
+	transform: translateY(-100%);
+}
+
+.workspace-diff-preview-title {
+	flex: none;
+	padding: 7px 9px;
+	overflow: hidden;
+	color: var(--seek-muted);
+	font-family: var(--vscode-editor-font-family);
+	font-size: 10.5px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	border-bottom: 1px solid var(--seek-border);
+}
+
+.workspace-diff-preview-code {
+	min-height: 0;
+	max-height: 290px;
+	padding: 5px 0;
+	overflow: auto;
+	font-family: var(--vscode-editor-font-family);
+	font-size: var(--vscode-editor-font-size, 12px);
+	line-height: 1.45;
+	tab-size: 4;
+}
+
+.workspace-diff-line {
+	min-width: max-content;
+	padding: 0 9px;
+	white-space: pre;
+}
+
+.workspace-diff-line.header {
+	padding-top: 3px;
+	padding-bottom: 3px;
+	color: var(--seek-muted);
+}
+
+.workspace-diff-line.added {
+	background: color-mix(
+		in srgb,
+		var(--vscode-diffEditor-insertedLineBackground, var(--vscode-terminal-ansiGreen)) 18%,
+		transparent
+	);
+}
+
+.workspace-diff-line.removed {
+	background: color-mix(
+		in srgb,
+		var(--vscode-diffEditor-removedLineBackground, var(--vscode-terminal-ansiRed)) 18%,
+		transparent
+	);
+}
+
+.workspace-diff-preview-empty {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 56px;
+	padding: 12px;
+	color: var(--seek-muted);
+	font-size: 11px;
+}
+
+.workspace-diff-preview-more {
+	flex: none;
+	padding: 5px 9px 7px;
+	color: var(--seek-muted);
+	font-size: 10.5px;
+	border-top: 1px solid var(--seek-border);
+}
+
 .assistant-actions {
 	display: flex;
+	align-items: center;
 	justify-content: flex-start;
+	gap: 6px;
 	margin-top: 6px;
 	opacity: 0.62;
 }
@@ -1181,7 +1472,8 @@ a:hover {
 	color: var(--vscode-foreground);
 }
 
-.tool-heading {
+.tool-heading,
+.reasoning-heading {
 	display: flex;
 	flex: 1;
 	align-items: center;
@@ -1189,14 +1481,16 @@ a:hover {
 	overflow: hidden;
 }
 
-.tool-label {
+.tool-label,
+.reasoning-label {
 	flex: none;
 	font-size: 13px;
 	font-weight: 400;
 	line-height: 24px;
 }
 
-.tool-summary {
+.tool-summary,
+.reasoning-summary {
 	flex: 1 1 auto;
 	min-width: 0;
 	overflow: hidden;
@@ -1212,6 +1506,10 @@ a:hover {
 }
 
 .tool-call.running .tool-summary {
+	animation: process-shimmer 1.4s ease-in-out infinite;
+}
+
+.reasoning.running .reasoning-summary {
 	animation: process-shimmer 1.4s ease-in-out infinite;
 }
 
@@ -1680,9 +1978,15 @@ a:hover {
 }
 
 .composer textarea {
+	--composer-textarea-vertical-padding: 8px;
+	--composer-textarea-min-height: calc(4.5em + var(--composer-textarea-vertical-padding));
+	--composer-textarea-max-height: calc(13.5em + var(--composer-textarea-vertical-padding));
 	width: 100%;
-	min-height: 30px;
-	max-height: 160px;
+	min-height: var(--composer-textarea-min-height);
+	max-height: min(
+		var(--composer-textarea-max-height),
+		max(var(--composer-textarea-min-height), 45dvh)
+	);
 	padding: 4px 2px;
 	overflow-y: auto;
 	color: var(--vscode-input-foreground);
@@ -2402,29 +2706,54 @@ a:hover {
 .setup {
 	display: flex;
 	flex-direction: column;
-	justify-content: center;
 	height: 100%;
-	padding: 28px 22px;
+	padding: clamp(48px, 10vh, 96px) 28px 40px;
 	overflow-y: auto;
 }
 
-.setup-heading {
+.setup-content {
+	width: min(100%, 420px);
+	margin: 0 auto;
+}
+
+.setup-intro {
 	display: flex;
+	flex-direction: column;
 	align-items: center;
-	gap: 10px;
-	width: min(100%, 340px);
-	margin: 0 auto 18px;
+	margin-bottom: clamp(72px, 12vh, 108px);
+	text-align: center;
 }
 
 .setup-mark {
-	width: 34px;
-	height: 34px;
-	border-radius: 8px;
+	position: relative;
+	width: 88px;
+	height: 88px;
+	margin-bottom: 22px;
+	color: var(--seek-accent);
+	background: color-mix(in srgb, var(--seek-accent) 7%, transparent);
+	border-radius: 50%;
+}
+
+.setup-mark::before {
+	position: absolute;
+	inset: 10px;
+	background: color-mix(in srgb, var(--seek-accent) 7%, transparent);
+	border-radius: 50%;
+	content: "";
+}
+
+.setup-deepseek-logo {
+	position: relative;
+	z-index: 1;
+	display: block;
+	width: 42px;
+	height: 42px;
 }
 
 .setup h1 {
 	margin: 0;
-	font-size: 17px;
+	font-size: 27px;
+	line-height: 1.2;
 	font-weight: 650;
 	letter-spacing: 0;
 }
@@ -2432,14 +2761,13 @@ a:hover {
 .setup form {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
-	width: min(100%, 340px);
-	margin: 0 auto;
 }
 
 .setup label {
-	font-size: 12px;
+	margin-bottom: 10px;
+	font-size: 13px;
 	font-weight: 600;
+	line-height: 1.4;
 }
 
 .key-field {
@@ -2448,23 +2776,53 @@ a:hover {
 
 .key-field input {
 	width: 100%;
-	padding: 7px 34px 7px 9px;
+	height: 44px;
+	padding: 0 46px 0 12px;
 	color: var(--vscode-input-foreground);
 	background: var(--vscode-input-background);
 	border: 1px solid var(--vscode-input-border, var(--seek-border));
-	border-radius: 4px;
+	border-radius: 6px;
 	outline: 0;
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-input-border, var(--seek-border)) 18%, transparent);
 }
 
 .key-field input:focus {
 	border-color: var(--vscode-focusBorder);
+	box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+}
+
+.key-field input:disabled {
+	opacity: 0.65;
 }
 
 .key-field .icon-button {
 	position: absolute;
 	top: 50%;
-	right: 4px;
+	right: 5px;
+	width: 34px;
+	height: 34px;
 	transform: translateY(-50%);
+}
+
+.setup-hint {
+	margin: 9px 0 22px;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--vscode-descriptionForeground);
+}
+
+.setup .setup-submit {
+	align-self: flex-start;
+	min-width: 116px;
+	min-height: 40px;
+	padding: 0 18px;
+	font-size: 13px;
+	font-weight: 500;
+	border-radius: 6px;
+}
+
+.setup .key-error {
+	margin-top: 12px;
 }
 
 .primary-button {
@@ -2491,6 +2849,31 @@ a:hover {
 	line-height: 1.45;
 	color: var(--vscode-errorForeground);
 	overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+	.setup {
+		padding: 48px 22px 32px;
+	}
+
+	.setup-intro {
+		margin-bottom: 64px;
+	}
+
+	.setup-mark {
+		width: 76px;
+		height: 76px;
+		margin-bottom: 18px;
+	}
+
+	.setup-deepseek-logo {
+		width: 38px;
+		height: 38px;
+	}
+
+	.setup h1 {
+		font-size: 24px;
+	}
 }
 
 .page-header {
@@ -2649,8 +3032,9 @@ body.settings-panel-body {
 	align-items: flex-start;
 	justify-content: space-between;
 	gap: 20px;
-	min-height: 92px;
-	padding: 22px 30px 18px;
+	/* min-height: 64px; */
+	padding: 22px 30px 6px;
+	/* background-color: yellow; */
 }
 
 .settings-panel-header h1 {
@@ -3032,6 +3416,426 @@ body.settings-panel-body {
 	opacity: 0.55;
 }
 
+.mcp-settings {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	width: 100%;
+	max-width: 900px;
+	min-height: 0;
+}
+
+.mcp-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	min-width: 0;
+}
+
+.mcp-server-list {
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	list-style: none;
+	background: color-mix(
+		in srgb,
+		var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 72%,
+		var(--vscode-editor-background)
+	);
+	border: 1px solid var(--seek-border);
+	border-radius: 8px;
+}
+
+.mcp-server-list > li {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto auto;
+	align-items: center;
+	gap: 10px;
+	min-height: 54px;
+	padding: 8px 12px 8px 16px;
+	border-bottom: 1px solid var(--seek-border);
+}
+
+.mcp-server-list > li:last-child {
+	border-bottom: 0;
+}
+
+.mcp-server-copy {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 9px;
+	min-width: 0;
+}
+
+.mcp-server-copy strong {
+	font-size: 12px;
+	font-weight: 620;
+	overflow-wrap: anywhere;
+}
+
+.mcp-server-copy > span,
+.mcp-server-copy > small {
+	font-size: 10px;
+	color: var(--seek-muted);
+}
+
+.mcp-server-copy > small {
+	flex-basis: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.mcp-back {
+	display: inline-flex;
+	align-self: flex-start;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 0;
+	font-size: 11px;
+	color: var(--seek-muted);
+	background: transparent;
+	border: 0;
+	cursor: pointer;
+}
+
+.mcp-back:hover {
+	color: var(--vscode-foreground);
+}
+
+.mcp-form-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 20px;
+}
+
+.mcp-form-heading h2 {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 620;
+	letter-spacing: 0;
+}
+
+.mcp-form-heading p,
+.mcp-secret-section > p {
+	margin: 5px 0 0;
+	font-size: 11px;
+	line-height: 1.5;
+	color: var(--seek-muted);
+}
+
+.mcp-form {
+	display: flex;
+	flex-direction: column;
+	gap: 15px;
+	width: 100%;
+	max-width: 760px;
+	padding: 18px 20px 20px;
+	background: color-mix(
+		in srgb,
+		var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 72%,
+		var(--vscode-editor-background)
+	);
+	border: 1px solid var(--seek-border);
+	border-radius: 8px;
+}
+
+.mcp-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+
+.mcp-field > span {
+	font-size: 11.5px;
+	font-weight: 620;
+}
+
+.mcp-field > small,
+.mcp-muted {
+	margin: 0;
+	font-size: 10px;
+	line-height: 1.45;
+	color: var(--seek-muted);
+}
+
+.mcp-field input {
+	width: 100%;
+	min-width: 0;
+	min-height: 32px;
+	padding: 5px 9px;
+	color: var(--vscode-input-foreground);
+	background: var(--vscode-input-background);
+	border: 1px solid var(--vscode-input-border, var(--seek-border));
+	border-radius: 4px;
+	outline: 0;
+}
+
+.mcp-field input:focus {
+	border-color: var(--vscode-focusBorder);
+}
+
+.mcp-field input:disabled,
+.mcp-add-row:disabled,
+.mcp-segmented button:disabled {
+	opacity: 0.58;
+	cursor: default;
+}
+
+.mcp-segmented {
+	display: inline-flex;
+	align-self: flex-start;
+	padding: 2px;
+	background: var(--vscode-input-background);
+	border: 1px solid var(--seek-border);
+	border-radius: 5px;
+}
+
+.mcp-segmented button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 27px;
+	padding: 3px 10px;
+	font-size: 11px;
+	color: var(--seek-muted);
+	background: transparent;
+	border: 0;
+	border-radius: 3px;
+	cursor: pointer;
+}
+
+.mcp-segmented button.active {
+	color: var(--vscode-foreground);
+	background: var(--vscode-button-secondaryBackground, var(--seek-surface-raised));
+}
+
+.mcp-entry-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 6px;
+}
+
+.mcp-entry-row-pair {
+	grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1.2fr) auto;
+}
+
+.mcp-add-row {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	width: 100%;
+	min-height: 29px;
+	font-size: 11px;
+	color: var(--seek-muted);
+	background: color-mix(in srgb, var(--seek-surface) 68%, transparent);
+	border: 1px solid var(--seek-border);
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.mcp-add-row:hover:not(:disabled) {
+	color: var(--vscode-foreground);
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.mcp-variable-note {
+	display: flex;
+	align-items: flex-start;
+	gap: 7px;
+	padding: 9px 10px;
+	color: var(--seek-muted);
+	background: color-mix(in srgb, var(--seek-surface) 58%, transparent);
+	border: 1px solid var(--seek-border);
+	border-radius: 5px;
+}
+
+.mcp-variable-note > svg {
+	flex: none;
+	margin-top: 1px;
+}
+
+.mcp-variable-note > p {
+	margin: 0;
+	font-size: 10.5px;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+
+.mcp-secret-section {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding-top: 14px;
+	border-top: 1px solid var(--seek-border);
+}
+
+.mcp-secret-section h3 {
+	margin: 0;
+	font-size: 12px;
+	font-weight: 620;
+}
+
+.mcp-form-actions {
+	display: flex;
+	justify-content: flex-end;
+	padding-top: 2px;
+}
+
+.mcp-dialog-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 30;
+	display: grid;
+	padding: 28px;
+	place-items: center;
+	background: color-mix(in srgb, #000 45%, transparent);
+}
+
+.mcp-dialog {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	width: min(820px, 100%);
+	max-height: min(760px, calc(100vh - 56px));
+	padding: 20px;
+	overflow-y: auto;
+	background: var(--vscode-editorWidget-background, Canvas);
+	border: 1px solid var(--seek-border);
+	border-radius: 8px;
+	box-shadow: 0 16px 42px rgb(0 0 0 / 28%);
+	scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+	scrollbar-width: thin;
+}
+
+.mcp-dialog-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 20px;
+}
+
+.mcp-dialog-header h2 {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 620;
+	letter-spacing: 0;
+}
+
+.mcp-dialog-header p {
+	margin: 5px 0 0;
+	font-size: 11px;
+	line-height: 1.5;
+	color: var(--seek-muted);
+}
+
+.mcp-import-sources {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.mcp-import-source {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 13px 14px;
+	border: 1px solid var(--seek-border);
+	border-radius: 6px;
+}
+
+.mcp-import-source > header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 12px;
+	min-width: 0;
+}
+
+.mcp-import-source-title {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	font-size: 12px;
+}
+
+.mcp-import-source > header > code {
+	min-width: 0;
+	overflow: hidden;
+	font-family: var(--vscode-editor-font-family);
+	font-size: 10px;
+	color: var(--seek-muted);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.mcp-import-list {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	border-top: 1px solid var(--seek-border);
+}
+
+.mcp-import-list > li {
+	border-bottom: 1px solid var(--seek-border);
+}
+
+.mcp-import-row {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: flex-start;
+	gap: 9px;
+	padding: 9px 2px;
+	cursor: pointer;
+}
+
+.mcp-import-row.invalid {
+	cursor: default;
+	opacity: 0.72;
+}
+
+.mcp-import-row > input {
+	margin: 2px 0 0;
+}
+
+.mcp-import-row-copy {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 3px 9px;
+	min-width: 0;
+}
+
+.mcp-import-row-copy strong {
+	font-size: 11.5px;
+	overflow-wrap: anywhere;
+}
+
+.mcp-import-row-copy small,
+.mcp-import-row-copy em {
+	font-size: 10px;
+	font-style: normal;
+	color: var(--seek-muted);
+}
+
+.mcp-import-row-copy em {
+	flex-basis: 100%;
+	color: var(--vscode-errorForeground);
+}
+
+.mcp-import-actions {
+	display: flex;
+	justify-content: flex-end;
+}
+
 .history-page,
 .settings {
 	display: flex;
@@ -3352,6 +4156,10 @@ body.settings-panel-body {
 	.settings-panel-skill-group-title code {
 		max-width: calc(100vw - 100px);
 	}
+
+	.mcp-toolbar {
+		flex-wrap: wrap;
+	}
 }
 
 @media (max-width: 520px) {
@@ -3413,6 +4221,43 @@ body.settings-panel-body {
 		max-width: calc(100vw - 78px);
 		flex-basis: 100%;
 		margin-left: 24px;
+	}
+
+	.mcp-form-heading {
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.mcp-form {
+		padding: 15px 14px 16px;
+	}
+
+	.mcp-entry-row-pair {
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+
+	.mcp-entry-row-pair > input:nth-child(2) {
+		grid-column: 1;
+		grid-row: 2;
+	}
+
+	.mcp-entry-row-pair > .icon-button {
+		grid-column: 2;
+		grid-row: 1 / span 2;
+	}
+
+	.mcp-dialog-backdrop {
+		padding: 10px;
+	}
+
+	.mcp-dialog {
+		max-height: calc(100vh - 20px);
+		padding: 16px 14px;
+	}
+
+	.mcp-import-source > header > code {
+		flex-basis: 100%;
+		margin-left: 22px;
 	}
 }
 

@@ -4,6 +4,15 @@ import type {
 } from './composer-skills.ts';
 import { isRuntimeStatus, type RuntimeStatus } from './rpc.ts';
 import { isLanguage, type Language } from './i18n/index.ts';
+import {
+	isMcpImportSourceId,
+	isMcpServer,
+	isMcpServerShape,
+	type McpImportResult,
+	type McpImportSource,
+	type McpImportSourceId,
+	type McpServer,
+} from './mcp-servers.ts';
 import { isNonEmptyString, isRecord } from './value-validation.ts';
 
 /** Core settings state shared by every standalone SeekDock settings panel. */
@@ -41,7 +50,11 @@ export type SettingsSaveKind =
 	| 'resetSystemPrompt'
 	| 'skill'
 	| 'openSkill'
-	| 'language';
+	| 'language'
+	| 'mcpServer'
+	| 'mcpServerToggle'
+	| 'mcpServerDelete'
+	| 'mcpImport';
 
 /** Messages posted by the standalone settings Webview. */
 export type SettingsToHostMessage =
@@ -52,7 +65,30 @@ export type SettingsToHostMessage =
 	| { type: 'requestSkills'; requestId: string }
 	| { type: 'setSkillEnabled'; requestId: string; name: string; enabled: boolean }
 	| { type: 'openSkill'; requestId: string; name: string }
-	| { type: 'setLanguage'; requestId: string; language: Language };
+	| { type: 'setLanguage'; requestId: string; language: Language }
+	| { type: 'requestMcpServers'; requestId: string }
+	| {
+		type: 'saveMcpServer';
+		requestId: string;
+		server: McpServer;
+		previousServerName?: string;
+		secrets: Readonly<Record<string, string>>;
+	}
+	| { type: 'deleteMcpServer'; requestId: string; serverName: string }
+	| {
+		type: 'setMcpServerEnabled';
+		requestId: string;
+		serverName: string;
+		enabled: boolean;
+	}
+	| { type: 'requestMcpImportSources'; requestId: string }
+	| {
+		type: 'importMcpServers';
+		requestId: string;
+		sourceId: McpImportSourceId;
+		originalNames: readonly string[];
+		secrets: Readonly<Record<string, string>>;
+	};
 
 /** Messages posted by the extension host to the settings Webview. */
 export type HostToSettingsMessage =
@@ -64,6 +100,18 @@ export type HostToSettingsMessage =
 		roots: SettingsSkillRoots;
 		skills: readonly SettingsSkill[];
 	}
+	| {
+		type: 'mcpServers';
+		requestId: string;
+		path: string;
+		servers: readonly McpServer[];
+	}
+	| {
+		type: 'mcpImportSources';
+		requestId: string;
+		sources: readonly McpImportSource[];
+	}
+	| { type: 'mcpImported'; requestId: string; result: McpImportResult }
 	| { type: 'error'; requestId: string; message: string };
 
 /** @returns whether a settings Webview message matches the host contract. */
@@ -80,6 +128,8 @@ export function isSettingsToHostMessage(value: unknown): value is SettingsToHost
 			return isNonEmptyString(value.requestId) && typeof value.prompt === 'string';
 		case 'resetSystemPrompt':
 		case 'requestSkills':
+		case 'requestMcpServers':
+		case 'requestMcpImportSources':
 			return isNonEmptyString(value.requestId);
 		case 'setSkillEnabled':
 			return isNonEmptyString(value.requestId)
@@ -89,6 +139,25 @@ export function isSettingsToHostMessage(value: unknown): value is SettingsToHost
 			return isNonEmptyString(value.requestId) && isNonEmptyString(value.name);
 		case 'setLanguage':
 			return isNonEmptyString(value.requestId) && isLanguage(value.language);
+		case 'saveMcpServer':
+			return isNonEmptyString(value.requestId)
+				&& isMcpServerShape(value.server)
+				&& (value.previousServerName === undefined
+					|| isNonEmptyString(value.previousServerName))
+				&& isStringRecord(value.secrets);
+		case 'deleteMcpServer':
+			return isNonEmptyString(value.requestId)
+				&& isNonEmptyString(value.serverName);
+		case 'setMcpServerEnabled':
+			return isNonEmptyString(value.requestId)
+				&& isNonEmptyString(value.serverName)
+				&& typeof value.enabled === 'boolean';
+		case 'importMcpServers':
+			return isNonEmptyString(value.requestId)
+				&& isMcpImportSourceId(value.sourceId)
+				&& Array.isArray(value.originalNames)
+				&& value.originalNames.every(isNonEmptyString)
+				&& isStringRecord(value.secrets);
 		default:
 			return false;
 	}
@@ -109,12 +178,27 @@ export function isHostToSettingsMessage(value: unknown): value is HostToSettings
 					|| value.kind === 'resetSystemPrompt'
 					|| value.kind === 'skill'
 					|| value.kind === 'openSkill'
-					|| value.kind === 'language');
+					|| value.kind === 'language'
+					|| value.kind === 'mcpServer'
+					|| value.kind === 'mcpServerToggle'
+					|| value.kind === 'mcpServerDelete'
+					|| value.kind === 'mcpImport');
 		case 'skillCatalog':
 			return isNonEmptyString(value.requestId)
 				&& isSettingsSkillRoots(value.roots)
 				&& Array.isArray(value.skills)
 				&& value.skills.every(isSettingsSkill);
+		case 'mcpServers':
+			return isNonEmptyString(value.requestId)
+				&& isNonEmptyString(value.path)
+				&& Array.isArray(value.servers)
+				&& value.servers.every(isMcpServer);
+		case 'mcpImportSources':
+			return isNonEmptyString(value.requestId)
+				&& Array.isArray(value.sources)
+				&& value.sources.every(isMcpImportSource);
+		case 'mcpImported':
+			return isNonEmptyString(value.requestId) && isMcpImportResult(value.result);
 		case 'error':
 			return isNonEmptyString(value.requestId) && typeof value.message === 'string';
 		default:
@@ -149,5 +233,37 @@ function isSettingsSkillRoots(value: unknown): value is SettingsSkillRoots {
 
 function isComposerSkillSource(value: unknown): value is ComposerSkillSource {
 	return value === 'workspace' || value === 'user';
+}
+
+function isMcpImportSource(value: unknown): value is McpImportSource {
+	return isRecord(value)
+		&& isMcpImportSourceId(value.id)
+		&& typeof value.path === 'string'
+		&& typeof value.available === 'boolean'
+		&& Array.isArray(value.servers)
+		&& value.servers.every(isMcpImportServerPreview)
+		&& (value.error === undefined || typeof value.error === 'string');
+}
+
+function isMcpImportServerPreview(value: unknown): boolean {
+	return isRecord(value)
+		&& typeof value.originalName === 'string'
+		&& typeof value.serverName === 'string'
+		&& (value.transport === undefined
+			|| value.transport === 'stdio'
+			|| value.transport === 'http')
+		&& Array.isArray(value.secretNames)
+		&& value.secretNames.every(name => typeof name === 'string')
+		&& (value.error === undefined || isRecord(value.error));
+}
+
+function isMcpImportResult(value: unknown): value is McpImportResult {
+	return isRecord(value)
+		&& typeof value.imported === 'number'
+		&& typeof value.skipped === 'number';
+}
+
+function isStringRecord(value: unknown): value is Readonly<Record<string, string>> {
+	return isRecord(value) && Object.values(value).every(item => typeof item === 'string');
 }
 

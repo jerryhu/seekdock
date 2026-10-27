@@ -41,6 +41,33 @@ suite('Interface localization', () => {
 		assert.strictEqual(translate('fr', 'save'), 'Enregistrer');
 	});
 
+	test('labels active and completed work duration in every language', () => {
+		for (const language of SUPPORTED_LANGUAGES) {
+			const working = translate(language, 'workingFor', { duration: '1m 2s' });
+			const worked = translate(language, 'workedFor', { duration: '1m 2s' });
+
+			assert.ok(working.includes('1m 2s'), `${language} omitted the working duration`);
+			assert.ok(worked.includes('1m 2s'), `${language} omitted the worked duration`);
+			assert.notStrictEqual(working, worked, `${language} used the same working and worked label`);
+		}
+		assert.strictEqual(
+			translate('en', 'workingFor', { duration: '1m 2s' }),
+			'Working for 1m 2s',
+		);
+		assert.strictEqual(
+			translate('en', 'workedFor', { duration: '1m 2s' }),
+			'Worked for 1m 2s',
+		);
+		assert.strictEqual(
+			translate('zh-cn', 'workingFor', { duration: '1m 2s' }),
+			'已处理 1m 2s',
+		);
+		assert.strictEqual(
+			translate('zh-cn', 'workedFor', { duration: '1m 2s' }),
+			'用时 1m 2s',
+		);
+	});
+
 	test('uses the host-declared document language before the first state message', () => {
 		const previous = Object.getOwnPropertyDescriptor(globalThis, 'document');
 		Object.defineProperty(globalThis, 'document', {

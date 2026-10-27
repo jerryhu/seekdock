@@ -5,13 +5,21 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { gzipSync } from 'node:zlib';
+import { fileURLToPath } from 'node:url';
+import { zipSync } from 'fflate';
 import {
+	hostRuntimeTarget,
+	loadRuntimeManifest,
 	prepareRuntime,
 	verifyPreparedRuntime,
 } from './prepare-runtime.mjs';
+import {
+	RUNTIME_TARGETS,
+	VSCODE_TARGETS,
+} from './runtime-targets.mjs';
 
 const TARGET = 'macos-arm64';
+const WHEEL_FILENAME = 'fixture-runtime.whl';
 const FILES = {
 	executable: 'fixture-runtime',
 	ripgrep: 'fixture-runtime-rg',
@@ -22,17 +30,55 @@ const CONTENTS = {
 	ripgrep: Buffer.from('fixture ripgrep\n'),
 	spawnHelper: Buffer.from('fixture spawn helper\n'),
 };
+const DOCUMENTS = {
+	LICENSE: Buffer.from('fixture license\n'),
+	'THIRD_PARTY_NOTICES.md': Buffer.from('fixture notices\n'),
+};
 
-test('downloads, verifies, and installs all runtime artifacts', async () => {
+test('maps every DeepSeek Harness runtime to its build host and VS Code target', () => {
+	assert.deepStrictEqual(
+		[
+			hostRuntimeTarget('linux', 'x64'),
+			hostRuntimeTarget('linux', 'arm64'),
+			hostRuntimeTarget('darwin', 'arm64'),
+			hostRuntimeTarget('darwin', 'x64'),
+			hostRuntimeTarget('win32', 'x64'),
+		],
+		RUNTIME_TARGETS,
+	);
+	assert.deepStrictEqual(
+		Object.fromEntries(RUNTIME_TARGETS.map(target => [target, VSCODE_TARGETS[target]])),
+		{
+			'linux-x64': 'linux-x64',
+			'linux-arm64': 'linux-arm64',
+			'macos-arm64': 'darwin-arm64',
+			'macos-x64': 'darwin-x64',
+			'win-x64': 'win32-x64',
+		},
+	);
+});
+
+test('runtime manifest includes every official runtime wheel', async () => {
+	const root = fileURLToPath(new URL('..', import.meta.url));
+	const manifest = await loadRuntimeManifest(root);
+	assert.deepStrictEqual(Object.keys(manifest.targets).sort(), [...RUNTIME_TARGETS].sort());
+	for (const target of RUNTIME_TARGETS) {
+		const runtime = manifest.targets[target];
+		assert.match(runtime.wheel.filename, /0\.2\.1rc2/u);
+		assert.match(runtime.wheel.url, /^https:\/\/files\.pythonhosted\.org\//u);
+		assert.match(runtime.wheel.sha256, /^[a-f0-9]{64}$/u);
+		assert.ok(runtime.wheel.size > 0);
+	}
+});
+
+test('downloads, verifies, and installs all runtime artifacts from a wheel', async () => {
 	const fixture = await createFixture();
-	const assets = makeAssets();
-	const server = await startAssetServer(assets);
+	const server = await startAssetServer(makeAssets());
 	try {
 		await fixture.writeManifest(server.url);
 		const result = await prepareRuntime({
 			root: fixture.root,
 			target: TARGET,
-			assetBaseUrl: server.url,
 		});
 
 		assert.strictEqual(result.reused, false);
@@ -44,7 +90,14 @@ test('downloads, verifies, and installs all runtime artifacts', async () => {
 		}
 		const executableMode = (await stat(join(fixture.runtimeDirectory, FILES.executable))).mode;
 		assert.notStrictEqual(executableMode & 0o111, 0);
-		assert.strictEqual(server.requests.size, 3);
+		for (const [filename, contents] of Object.entries(DOCUMENTS)) {
+			assert.deepStrictEqual(
+				await readFile(join(fixture.runtimeDirectory, filename)),
+				contents,
+			);
+		}
+		await assert.rejects(access(join(fixture.runtimeDirectory, WHEEL_FILENAME)));
+		assert.deepStrictEqual([...server.requests], [WHEEL_FILENAME]);
 	} finally {
 		await server.close();
 		await fixture.close();
@@ -56,30 +109,29 @@ test('reuses a verified runtime without downloading again', async () => {
 	const server = await startAssetServer(makeAssets());
 	try {
 		await fixture.writeManifest(server.url);
-		await prepareRuntime({ root: fixture.root, target: TARGET, assetBaseUrl: server.url });
+		await prepareRuntime({ root: fixture.root, target: TARGET });
 		const result = await prepareRuntime({
 			root: fixture.root,
 			target: TARGET,
-			assetBaseUrl: server.url,
 		});
 
 		assert.strictEqual(result.reused, true);
-		assert.strictEqual(server.requests.size, 3);
+		assert.strictEqual(server.requests.size, 1);
 	} finally {
 		await server.close();
 		await fixture.close();
 	}
 });
 
-test('fails when an asset returns HTTP 404', async () => {
+test('fails when the wheel returns HTTP 404', async () => {
 	const fixture = await createFixture();
 	const server = await startAssetServer(makeAssets(), {
-		failures: new Map([['fixture-runtime-rg.gz', { status: 404 }]]),
+		failures: new Map([[WHEEL_FILENAME, { status: 404 }]]),
 	});
 	try {
 		await fixture.writeManifest(server.url);
 		await assert.rejects(
-			prepareRuntime({ root: fixture.root, target: TARGET, assetBaseUrl: server.url }),
+			prepareRuntime({ root: fixture.root, target: TARGET }),
 			/HTTP 404/u,
 		);
 		await assert.rejects(access(join(fixture.runtimeDirectory, FILES.executable)));
@@ -89,15 +141,15 @@ test('fails when an asset returns HTTP 404', async () => {
 	}
 });
 
-test('fails when a downloaded artifact has the wrong SHA-256', async () => {
+test('fails when the downloaded wheel has the wrong SHA-256', async () => {
 	const fixture = await createFixture();
 	const server = await startAssetServer(makeAssets());
 	try {
 		await fixture.writeManifest(server.url, {
-			executableSha256: '0'.repeat(64),
+			wheelSha256: '0'.repeat(64),
 		});
 		await assert.rejects(
-			prepareRuntime({ root: fixture.root, target: TARGET, assetBaseUrl: server.url }),
+			prepareRuntime({ root: fixture.root, target: TARGET }),
 			/SHA-256/u,
 		);
 		await assert.rejects(access(join(fixture.runtimeDirectory, FILES.executable)));
@@ -107,16 +159,20 @@ test('fails when a downloaded artifact has the wrong SHA-256', async () => {
 	}
 });
 
-test('fails when a downloaded artifact is not valid gzip data', async () => {
+test('fails when the downloaded wheel is not valid ZIP data', async () => {
 	const fixture = await createFixture();
+	const replacement = Buffer.from('not zip');
 	const server = await startAssetServer(makeAssets(), {
-		replacements: new Map([['fixture-runtime-spawn-helper.gz', Buffer.from('not gzip')]]),
+		replacements: new Map([[WHEEL_FILENAME, replacement]]),
 	});
 	try {
-		await fixture.writeManifest(server.url);
+		await fixture.writeManifest(server.url, {
+			wheelSha256: createHash('sha256').update(replacement).digest('hex'),
+			wheelSize: replacement.length,
+		});
 		await assert.rejects(
-			prepareRuntime({ root: fixture.root, target: TARGET, assetBaseUrl: server.url }),
-			/Could not unpack runtime asset/u,
+			prepareRuntime({ root: fixture.root, target: TARGET }),
+			/Could not unpack runtime wheel/u,
 		);
 	} finally {
 		await server.close();
@@ -124,15 +180,15 @@ test('fails when a downloaded artifact is not valid gzip data', async () => {
 	}
 });
 
-test('fails when an asset response is truncated', async () => {
+test('fails when the wheel response is truncated', async () => {
 	const fixture = await createFixture();
 	const server = await startAssetServer(makeAssets(), {
-		truncate: new Set(['fixture-runtime-rg.gz']),
+		truncate: new Set([WHEEL_FILENAME]),
 	});
 	try {
 		await fixture.writeManifest(server.url);
 		await assert.rejects(
-			prepareRuntime({ root: fixture.root, target: TARGET, assetBaseUrl: server.url }),
+			prepareRuntime({ root: fixture.root, target: TARGET }),
 		);
 		await assert.rejects(access(join(fixture.runtimeDirectory, FILES.executable)));
 	} finally {
@@ -146,7 +202,7 @@ test('rejects a cache whose content no longer matches the manifest', async () =>
 	const server = await startAssetServer(makeAssets());
 	try {
 		await fixture.writeManifest(server.url);
-		await prepareRuntime({ root: fixture.root, target: TARGET, assetBaseUrl: server.url });
+		await prepareRuntime({ root: fixture.root, target: TARGET });
 		await writeFile(join(fixture.runtimeDirectory, FILES.executable), 'tampered');
 		await assert.rejects(
 			verifyPreparedRuntime({ root: fixture.root, target: TARGET }),
@@ -159,48 +215,57 @@ test('rejects a cache whose content no longer matches the manifest', async () =>
 });
 
 function makeAssets() {
-	return new Map(
-		Object.entries(FILES).map(([role, filename]) => [
-			`${filename}.gz`,
-			gzipSync(CONTENTS[role]),
-		]),
-	);
+	return new Map([[WHEEL_FILENAME, makeWheel()]]);
+}
+
+function makeWheel() {
+	return Buffer.from(zipSync({
+		deepseek_harness_runtime: {
+			runtime: Object.fromEntries(
+				Object.entries(FILES).map(([role, filename]) => [filename, CONTENTS[role]]),
+			),
+		},
+		'deepseek_harness_runtime_bin-0.2.1rc2.dist-info': {
+			licenses: DOCUMENTS,
+		},
+	}));
 }
 
 async function createFixture() {
 	const root = await mkdtemp(join(tmpdir(), 'seekdock-runtime-prepare-test-'));
 	const runtimeDirectory = join(root, 'resources', 'runtime', TARGET);
-	await mkdir(runtimeDirectory, { recursive: true });
-	await writeFile(join(runtimeDirectory, 'LICENSE'), 'fixture license\n');
-	await writeFile(join(runtimeDirectory, 'THIRD_PARTY_NOTICES.md'), 'fixture notices\n');
+	await mkdir(join(root, 'resources', 'runtime'), { recursive: true });
 
 	return {
 		root,
 		runtimeDirectory,
 		async writeManifest(assetBaseUrl, overrides = {}) {
+			const wheel = makeWheel();
 			const artifacts = Object.fromEntries(
-				Object.entries(FILES).map(([role, filename]) => [
+				Object.entries(FILES).map(([role]) => [
 					role,
 					{
-						asset: `${filename}.gz`,
 						size: CONTENTS[role].length,
-						sha256: overrides[`${role}Sha256`]
-							?? createHash('sha256').update(CONTENTS[role]).digest('hex'),
+						sha256: createHash('sha256').update(CONTENTS[role]).digest('hex'),
 					},
 				]),
 			);
 			await writeFile(
 				join(root, 'resources', 'runtime', 'manifest.json'),
 				JSON.stringify({
+					schemaVersion: 2,
 					sdkVersion: 'fixture',
 					runtimeVersion: 'fixture',
-					release: {
-						tag: 'runtime-fixture',
-						assetBaseUrl,
-					},
 					targets: {
 						[TARGET]: {
 							...FILES,
+							wheel: {
+								filename: WHEEL_FILENAME,
+								url: new URL(WHEEL_FILENAME, assetBaseUrl).href,
+								size: overrides.wheelSize ?? wheel.length,
+								sha256: overrides.wheelSha256
+									?? createHash('sha256').update(wheel).digest('hex'),
+							},
 							artifacts,
 						},
 					},

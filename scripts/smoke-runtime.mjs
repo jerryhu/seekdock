@@ -5,27 +5,33 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client';
+import {
+	hostRuntimeTarget,
+	resolveRuntimeTarget,
+} from './runtime-targets.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const manifest = JSON.parse(
 	await readFile(resolve(root, 'resources', 'runtime', 'manifest.json'), 'utf8'),
 );
-const hostTargets = {
-	'darwin-arm64': 'macos-arm64',
-	'darwin-x64': 'macos-x64',
-	'linux-arm64': 'linux-arm64',
-	'linux-x64': 'linux-x64',
-	'win32-x64': 'win-x64',
-};
-const target = hostTargets[`${process.platform}-${process.arch}`];
-const runtime = target === undefined ? undefined : manifest.targets[target];
+const target = resolveRuntimeTarget(process.argv[2]);
+const runtime = manifest.targets[target];
 if (runtime === undefined) {
-	throw new Error(`No packaged SeekDock runtime exists for ${process.platform}-${process.arch}.`);
+	throw new Error(`No packaged SeekDock runtime exists for ${target}.`);
+}
+if (target !== hostRuntimeTarget()) {
+	console.log(
+		`Verified DeepSeek Harness ${target} runtime files; `
+		+ `the execution smoke test requires ${target}.`,
+	);
+	process.exit(0);
 }
 
 const requests = [];
 const openResponses = new Set();
 let approvalToolIssued = false;
+let smokeReadIssued = false;
+let smokeEditIssued = false;
 const server = createServer((request, response) => {
 	let body = '';
 	request.on('data', chunk => {
@@ -69,6 +75,59 @@ const server = createServer((request, response) => {
 					delta: {
 						type: 'input_json_delta',
 						partial_json: '{"command":"echo approval-ok","description":"smoke approval"}',
+					},
+				},
+				{ type: 'content_block_stop', index: 0 },
+				{ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 2 } },
+				{ type: 'message_stop' },
+			]) {
+				response.write(`data: ${JSON.stringify(event)}\n\n`);
+			}
+			response.end();
+			return;
+		}
+		if (serialized.includes('edit the smoke file') && !smokeReadIssued) {
+			smokeReadIssued = true;
+			for (const event of [
+				{ type: 'message_start', message: { usage: { input_tokens: 3 } } },
+				{
+					type: 'content_block_start',
+					index: 0,
+					content_block: { type: 'tool_use', id: 'toolu_read_smoke', name: 'read', input: {} },
+				},
+				{
+					type: 'content_block_delta',
+					index: 0,
+					delta: { type: 'input_json_delta', partial_json: '{"file_path":"smoke.txt"}' },
+				},
+				{ type: 'content_block_stop', index: 0 },
+				{ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 2 } },
+				{ type: 'message_stop' },
+			]) {
+				response.write(`data: ${JSON.stringify(event)}\n\n`);
+			}
+			response.end();
+			return;
+		}
+		if (serialized.includes('edit the smoke file') && !smokeEditIssued) {
+			smokeEditIssued = true;
+			for (const event of [
+				{ type: 'message_start', message: { usage: { input_tokens: 3 } } },
+				{
+					type: 'content_block_start',
+					index: 0,
+					content_block: { type: 'tool_use', id: 'toolu_edit_smoke', name: 'edit', input: {} },
+				},
+				{
+					type: 'content_block_delta',
+					index: 0,
+					delta: {
+						type: 'input_json_delta',
+						partial_json: JSON.stringify({
+							file_path: 'smoke.txt',
+							old_string: 'before',
+							new_string: 'after',
+						}),
 					},
 				},
 				{ type: 'content_block_stop', index: 0 },
@@ -165,6 +224,7 @@ const permissionSocketPath = join(temporaryRoot, 'permission.sock');
 const planSocketPath = join(temporaryRoot, 'plan.sock');
 const skillSocketPath = join(temporaryRoot, 'skill.sock');
 const sessionTitleSocketPath = join(temporaryRoot, 'session-title.sock');
+const workspaceChangesSocketPath = join(temporaryRoot, 'workspace-changes.sock');
 const approvalSocketPath = join(temporaryRoot, 'approval.sock');
 const userAgentsHome = join(temporaryRoot, 'home', '.agents');
 const workspaceSkillRoot = join(workspaceRoot, '.agents', 'skills');
@@ -172,6 +232,8 @@ const userSkillRoot = join(userAgentsHome, 'skills');
 const promptMarker = 'SeekDock runtime smoke system prompt {{literal_braces}}';
 const systemPromptPath = join(temporaryRoot, 'active-system-prompt.md');
 await writeFile(systemPromptPath, promptMarker, 'utf8');
+await mkdir(workspaceRoot, { recursive: true });
+await writeFile(join(workspaceRoot, 'smoke.txt'), 'before\n', 'utf8');
 await mkdir(join(workspaceSkillRoot, 'smoke-skill'), { recursive: true });
 await writeFile(
 	join(workspaceSkillRoot, 'smoke-skill', 'SKILL.md'),
@@ -233,6 +295,7 @@ const makeHarness = () => new DeepSeekHarness({
 			SEEKDOCK_PLAN_SOCKET: planSocketPath,
 			SEEKDOCK_SKILL_SOCKET: skillSocketPath,
 			SEEKDOCK_SESSION_TITLE_SOCKET: sessionTitleSocketPath,
+			SEEKDOCK_WORKSPACE_CHANGES_SOCKET: workspaceChangesSocketPath,
 		SEEKDOCK_DSH_RUNTIME: process.env.SEEKDOCK_RUNTIME_SMOKE_PATH ?? resolve(
 			root,
 			'resources',
@@ -323,6 +386,38 @@ try {
 		throw new Error(`The packaged runtime did not rename the session: ${JSON.stringify(renamed)}`);
 	}
 	console.log('Session title smoke: DSH rename and persistence barrier verified.');
+	const changesSessionId = 'seekdock-runtime-smoke-changes';
+	await harness.session(changesSessionId).getWorkingDirectory();
+	const changedRun = await harness.run('edit the smoke file', { sessionId: changesSessionId });
+	if (changedRun.finalResponse !== '[mock-answer]') {
+		throw new Error(`Unexpected workspace-change answer: ${JSON.stringify(changedRun.finalResponse)}`);
+	}
+	const changesEvent = changedRun.events.find(event => event.type === 'workspace/changes');
+	if (changesEvent?.type !== 'workspace/changes') {
+		throw new Error('The packaged runtime did not announce workspace changes.');
+	}
+	const changesSummary = await controlRequest(workspaceChangesSocketPath, {
+		action: 'summary',
+		sessionId: changesSessionId,
+		seq: changesEvent.seq,
+	});
+	const changedFile = changesSummary?.summary?.files?.find(file => file.path === 'smoke.txt');
+	if (changesSummary?.ok !== true || changedFile === undefined
+		|| changedFile.added !== 1 || changedFile.deleted !== 1) {
+		throw new Error(`The runtime did not summarize the edited file: ${JSON.stringify(changesSummary)}`);
+	}
+	const changesDiff = await controlRequest(workspaceChangesSocketPath, {
+		action: 'diff',
+		sessionId: changesSessionId,
+		seq: changesEvent.seq,
+		index: changesSummary.summary.files.indexOf(changedFile),
+	});
+	if (changesDiff?.ok !== true
+		|| changesDiff.diff?.kind !== 'text'
+		|| !changesDiff.diff.hunks.some(hunk => hunk.lines.includes('-before') && hunk.lines.includes('+after'))) {
+		throw new Error(`The runtime did not serve the file comparison: ${JSON.stringify(changesDiff)}`);
+	}
+	console.log('Workspace changes smoke: summary and contextual diff verified.');
 		const firstRequest = requests[0];
 		if (firstRequest?.system === undefined
 			|| !JSON.stringify(firstRequest.system).includes(promptMarker)) {
@@ -392,7 +487,9 @@ try {
 	if (resumed.finalResponse !== '[mock-answer]') {
 		throw new Error(`Unexpected resumed answer: ${JSON.stringify(resumed.finalResponse)}`);
 	}
-	const resumedRequest = requests[1];
+	const resumedRequest = requests.findLast(request => (
+		JSON.stringify(request.messages).includes('Follow up')
+	));
 	if (resumedRequest === undefined
 		|| !JSON.stringify(resumedRequest.messages).includes('Reply with OK')
 		|| !JSON.stringify(resumedRequest.messages).includes('Follow up')) {

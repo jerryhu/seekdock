@@ -11,6 +11,15 @@ suite('Error formatting', () => {
 		assert.strictEqual(message, 'request failed for [redacted]; retry [redacted]');
 	});
 
+	test('redacts every sensitive MCP value', () => {
+		const message = formatErrorMessage(
+			new Error('tokens alpha and beta were rejected'),
+			['alpha', 'beta'],
+		);
+
+		assert.strictEqual(message, 'tokens [redacted] and [redacted] were rejected');
+	});
+
 	test('bounds provider errors before they reach the Webview', () => {
 		const message = formatErrorMessage(new Error('x'.repeat(4_100)));
 

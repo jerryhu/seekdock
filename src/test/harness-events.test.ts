@@ -217,14 +217,26 @@ suite('Harness event translation', () => {
 			[{ type: 'turnError', message: 'provider failed' }],
 		);
 	});
+
+	test('surfaces the sequence of a workspace change announcement', () => {
+		const translator = new HarnessEventTranslator('root');
+		assert.deepStrictEqual(
+			translator.translate(notification('root', 'workspace/changes', { turn: 3 }, 42)),
+			[{ type: 'workspaceChanges', turn: 3, seq: 42 }],
+		);
+		assert.deepStrictEqual(
+			translator.translate(notification('root', 'workspace/changes', { turn: 0 }, 43)),
+			[],
+		);
+	});
 });
 
-function notification(sessionId: string, type: string, data: object) {
+function notification(sessionId: string, type: string, data: object, seq = 0) {
 	return {
 		method: 'session.event',
 		params: {
 			sessionId,
-			event: { type, data },
+			event: { type, data, seq },
 		},
 	};
 }

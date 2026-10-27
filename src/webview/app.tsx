@@ -19,6 +19,10 @@ import {
 	type RuntimeStatus,
 	type SessionSummary,
 } from '../shared/rpc.ts';
+import type {
+	WorkspaceChangeSet,
+	WorkspaceFileDiff,
+} from '../shared/workspace-changes.ts';
 import {
 	DEFAULT_MODEL_SELECTION,
 	type ModelSelection,
@@ -138,6 +142,11 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 	const [focusToken, setFocusToken] = useState(0);
 	const [resetToken, setResetToken] = useState(0);
 	const [activeRequestId, setActiveRequestId] = useState<string>();
+	const pendingWorkspaceDiffs = useRef(new Map<string, {
+		timer: number;
+		resolve: (diff: WorkspaceFileDiff | null) => void;
+		reject: (error: Error) => void;
+	}>());
 	const configured = useRef(ui.configured);
 	configured.current = ui.configured;
 	const initialDraft = vscode.getState()?.draft ?? '';
@@ -162,6 +171,13 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 		vscode.postMessage({ type: 'ready' });
 		return () => window.removeEventListener('message', listener);
 	}, [store, vscode]);
+
+	useEffect(() => () => {
+		for (const pending of pendingWorkspaceDiffs.current.values()) {
+			window.clearTimeout(pending.timer);
+		}
+		pendingWorkspaceDiffs.current.clear();
+	}, []);
 
 	const handleHostMessage = (message: HostToWebviewMessage): void => {
 		store.handleHostMessage(message);
@@ -377,6 +393,24 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 					settingModelSelection: false,
 				}));
 				break;
+			case 'workspaceFileDiff': {
+				const pending = pendingWorkspaceDiffs.current.get(message.requestId);
+				if (pending !== undefined) {
+					window.clearTimeout(pending.timer);
+					pendingWorkspaceDiffs.current.delete(message.requestId);
+					pending.resolve(message.diff);
+				}
+				break;
+			}
+			case 'workspaceFileDiffError': {
+				const pending = pendingWorkspaceDiffs.current.get(message.requestId);
+				if (pending !== undefined) {
+					window.clearTimeout(pending.timer);
+					pendingWorkspaceDiffs.current.delete(message.requestId);
+					pending.reject(new Error(message.message));
+				}
+				break;
+			}
 			case 'responseStart':
 				setUi(current => ({ ...current, busy: true }));
 				break;
@@ -543,6 +577,37 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 			approvalId: approval.id,
 			...(approval.toolCallId === undefined ? {} : { toolCallId: approval.toolCallId }),
 			decision,
+		});
+	};
+
+	const requestWorkspaceDiff = (
+		changes: WorkspaceChangeSet,
+		index: number,
+	): Promise<WorkspaceFileDiff | null> => {
+		const requestId = crypto.randomUUID();
+		return new Promise((resolve, reject) => {
+			const timer = window.setTimeout(() => {
+				pendingWorkspaceDiffs.current.delete(requestId);
+				reject(new Error(t('workspaceDiffUnavailable')));
+			}, 15_000);
+			pendingWorkspaceDiffs.current.set(requestId, { timer, resolve, reject });
+			vscode.postMessage({
+				type: 'requestWorkspaceFileDiff',
+				requestId,
+				sessionId: changes.sessionId,
+				seq: changes.seq,
+				index,
+			});
+		});
+	};
+
+	const openWorkspaceDiff = (changes: WorkspaceChangeSet, index: number): void => {
+		vscode.postMessage({
+			type: 'openWorkspaceFileDiff',
+			requestId: crypto.randomUUID(),
+			sessionId: changes.sessionId,
+			seq: changes.seq,
+			index,
 		});
 	};
 
@@ -815,6 +880,8 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 						store={store}
 						onOpenLink={openLink}
 						onApprovalAnswer={answerApproval}
+						onRequestWorkspaceDiff={requestWorkspaceDiff}
+						onOpenWorkspaceDiff={openWorkspaceDiff}
 					/>
 				)
 				: (

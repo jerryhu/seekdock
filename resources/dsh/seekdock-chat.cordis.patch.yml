@@ -34,5 +34,7 @@
       name: ./seekdock-skill-bridge.mjs
     - id: seekdock-session-title-bridge
       name: ./seekdock-session-title-bridge.mjs
+    - id: seekdock-workspace-changes
+      name: ./seekdock-workspace-changes.mjs
     - id: seekdock-approval-bridge
       name: ./seekdock-approval-bridge.mjs

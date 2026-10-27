@@ -13,6 +13,7 @@ import {
 	Puzzle,
 	RotateCcw,
 	Save,
+	Server,
 	SlidersHorizontal,
 	UserRound,
 } from 'lucide-preact';
@@ -36,9 +37,10 @@ import {
 	type SettingsState,
 } from '../shared/settings-rpc.ts';
 import { detectInitialLanguage } from './i18n-context.tsx';
+import { McpSettings } from './mcp/mcp-settings.tsx';
 import type { SettingsVsCodeApi } from './settings-vscode-api.ts';
 
-type SettingsTab = 'general' | 'personalization' | 'skills';
+type SettingsTab = 'general' | 'personalization' | 'mcp' | 'skills';
 type PromptSaveOperation = 'save' | 'reset';
 
 interface PendingOperation {
@@ -104,6 +106,10 @@ export function SettingsApp({ vscode }: { vscode: SettingsVsCodeApi }): JSX.Elem
 		skills: {
 			label: t('skills'),
 			detail: t('skillsDetail'),
+		},
+		mcp: {
+			label: t('mcpServers'),
+			detail: t('mcpServersDetail'),
 		},
 	};
 
@@ -429,6 +435,15 @@ export function SettingsApp({ vscode }: { vscode: SettingsVsCodeApi }): JSX.Elem
 					</button>
 					<button
 						type="button"
+						className={tab === 'mcp' ? 'active' : undefined}
+						aria-current={tab === 'mcp' ? 'page' : undefined}
+						onClick={() => setTab('mcp')}
+					>
+						<Server size={15} />
+						<span>{t('mcpServers')}</span>
+					</button>
+					<button
+						type="button"
 						className={tab === 'skills' ? 'active' : undefined}
 						aria-current={tab === 'skills' ? 'page' : undefined}
 						onClick={() => setTab('skills')}
@@ -446,7 +461,7 @@ export function SettingsApp({ vscode }: { vscode: SettingsVsCodeApi }): JSX.Elem
 				<header className="settings-panel-header">
 					<div>
 						<h1>{tabMeta[tab].label}</h1>
-						<p>{tabMeta[tab].detail}</p>
+						{/* <p>{tabMeta[tab].detail}</p> */}
 					</div>
 				</header>
 
@@ -712,6 +727,15 @@ export function SettingsApp({ vscode }: { vscode: SettingsVsCodeApi }): JSX.Elem
 												</>
 											)}
 							</div>
+						)
+						: null}
+					{tab === 'mcp'
+						? (
+							<McpSettings
+								vscode={vscode}
+								t={t}
+								busy={ui.busy}
+							/>
 						)
 						: null}
 				</div>

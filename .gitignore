@@ -23,6 +23,8 @@ coverage/
 
 # Downloaded runtime payloads and atomic preparation directories
 resources/runtime/**/deepseek-harness-sdk-runtime-*
+resources/runtime/**/LICENSE
+resources/runtime/**/THIRD_PARTY_NOTICES.md
 resources/runtime/.prepare-runtime-*
 
 # Logs and process files
@@ -39,6 +41,9 @@ Thumbs.db
 copilot-instructions.md
 clean-code.instructions.md
 AGENTS.md
+TODO.md
+PUBLISH_NOTE.md
 skills
 skills-lock.json
 .mcp.json
+.vscode/

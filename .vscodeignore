@@ -16,10 +16,11 @@ AGENTS.md
 .mcp.json
 skills-lock.json
 TODO.md
+PUBLISH_NOTE.md
 .yarnrc
 esbuild.js
 package-lock.json
-vsc-extension-quickstart.md
+README.md
 **/tsconfig.json
 **/eslint.config.mjs
 **/*.map

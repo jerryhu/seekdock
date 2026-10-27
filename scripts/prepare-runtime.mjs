@@ -3,31 +3,31 @@ import { constants, createReadStream, createWriteStream } from 'node:fs';
 import {
 	access,
 	chmod,
-	copyFile,
 	mkdir,
 	mkdtemp,
 	readFile,
 	rename,
 	rm,
 	stat,
+	writeFile,
 } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { Readable, Transform } from 'node:stream';
+import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createGunzip } from 'node:zlib';
+import { unzipSync } from 'fflate';
+import {
+	hostRuntimeTarget,
+	resolveRuntimeTarget,
+} from './runtime-targets.mjs';
 
 export const RUNTIME_ROLES = ['executable', 'ripgrep', 'spawnHelper'];
 
-const HOST_TARGETS = {
-	'darwin-arm64': 'macos-arm64',
-	'darwin-x64': 'macos-x64',
-	'linux-arm64': 'linux-arm64',
-	'linux-x64': 'linux-x64',
-	'win32-x64': 'win-x64',
-};
-const PRESERVED_RUNTIME_FILES = ['LICENSE', 'THIRD_PARTY_NOTICES.md'];
+const RUNTIME_DOCUMENT_FILES = ['LICENSE', 'THIRD_PARTY_NOTICES.md'];
 const STAGING_PREFIX = '.prepare-runtime-';
+const WHEEL_RUNTIME_DIRECTORY = 'deepseek_harness_runtime/runtime/';
+
+export { hostRuntimeTarget };
 
 /**
  * @param {string} root
@@ -43,23 +43,12 @@ export async function loadRuntimeManifest(root) {
 	}
 	if (!isRecord(manifest)
 		|| typeof manifest.sdkVersion !== 'string'
+		|| manifest.schemaVersion !== 2
 		|| typeof manifest.runtimeVersion !== 'string'
-		|| !isRecord(manifest.release)
-		|| typeof manifest.release.tag !== 'string'
-		|| typeof manifest.release.assetBaseUrl !== 'string'
 		|| !isRecord(manifest.targets)) {
 		throw new Error(`Runtime manifest at ${manifestPath} has an invalid shape.`);
 	}
 	return manifest;
-}
-
-/**
- * @param {string} platform
- * @param {string} arch
- * @returns {string | undefined}
- */
-export function hostRuntimeTarget(platform = process.platform, arch = process.arch) {
-	return HOST_TARGETS[`${platform}-${arch}`];
 }
 
 /**
@@ -75,19 +64,16 @@ export function hostRuntimeTarget(platform = process.platform, arch = process.ar
  */
 export async function prepareRuntime(options) {
 	const root = resolve(options.root);
-	const target = options.target ?? hostRuntimeTarget();
-	if (target === undefined) {
-		throw new Error(`No SeekDock runtime target is defined for ${process.platform}-${process.arch}.`);
-	}
+	const target = resolveRuntimeTarget(options.target);
 
 	const manifest = await loadRuntimeManifest(root);
 	const runtime = requireTarget(manifest, target);
 	const runtimeRoot = join(root, 'resources', 'runtime');
 	const targetDirectory = join(runtimeRoot, target);
-	const assetBaseUrl = options.assetBaseUrl ?? manifest.release.assetBaseUrl;
 
 	try {
 		await verifyPreparedRuntime({ root, target });
+		await removeCachedWheel(targetDirectory, runtime);
 		return {
 			target,
 			runtimeVersion: manifest.runtimeVersion,
@@ -99,17 +85,13 @@ export async function prepareRuntime(options) {
 
 	const stagingDirectory = await mkdtemp(join(runtimeRoot, STAGING_PREFIX));
 	try {
-		await preserveRuntimeDocumentation(targetDirectory, stagingDirectory);
-		for (const role of RUNTIME_ROLES) {
-			const artifact = runtime.artifacts[role];
-			if (artifact === undefined) {
-				continue;
-			}
-			const outputPath = join(stagingDirectory, runtime[role]);
-			const assetUrl = new URL(artifact.asset, ensureTrailingSlash(assetBaseUrl));
-			await downloadArtifact(assetUrl, outputPath, artifact, options.fetchImpl ?? fetch);
-			await chmod(outputPath, 0o755);
-		}
+		const wheelUrl = options.assetBaseUrl === undefined
+			? new URL(runtime.wheel.url)
+			: new URL(runtime.wheel.filename, ensureTrailingSlash(options.assetBaseUrl));
+		const wheelPath = join(stagingDirectory, runtime.wheel.filename);
+		await downloadFile(wheelUrl, wheelPath, runtime.wheel, options.fetchImpl ?? fetch);
+		await extractWheel(wheelPath, stagingDirectory, runtime);
+		await rm(wheelPath, { force: true });
 
 		await verifyArtifacts(manifest, target, stagingDirectory);
 		await replaceRuntimeDirectory(targetDirectory, stagingDirectory);
@@ -129,15 +111,12 @@ export async function prepareRuntime(options) {
  */
 export async function verifyPreparedRuntime(options) {
 	const root = resolve(options.root);
-	const target = options.target ?? hostRuntimeTarget();
-	if (target === undefined) {
-		throw new Error(`No SeekDock runtime target is defined for ${process.platform}-${process.arch}.`);
-	}
+	const target = resolveRuntimeTarget(options.target);
 	const manifest = await loadRuntimeManifest(root);
 	const runtime = requireTarget(manifest, target);
 	const targetDirectory = join(root, 'resources', 'runtime', target);
 	await verifyArtifacts(manifest, target, targetDirectory);
-	for (const filename of PRESERVED_RUNTIME_FILES) {
+	for (const filename of RUNTIME_DOCUMENT_FILES) {
 		await access(join(targetDirectory, filename), constants.R_OK);
 	}
 	return {
@@ -158,8 +137,20 @@ function requireTarget(manifest, target) {
 	if (runtime.spawnHelper !== undefined) {
 		requireRelativeFilename(runtime.spawnHelper, `${target}.spawnHelper`);
 	}
+	if (!isRecord(runtime.wheel)
+		|| typeof runtime.wheel.filename !== 'string'
+		|| basename(runtime.wheel.filename) !== runtime.wheel.filename
+		|| typeof runtime.wheel.url !== 'string'
+		|| !isSupportedWheelUrl(runtime.wheel.url)
+		|| typeof runtime.wheel.size !== 'number'
+		|| !Number.isSafeInteger(runtime.wheel.size)
+		|| runtime.wheel.size <= 0
+		|| typeof runtime.wheel.sha256 !== 'string'
+		|| !/^[a-f0-9]{64}$/u.test(runtime.wheel.sha256)) {
+		throw new Error(`Runtime manifest target ${target} has invalid wheel metadata.`);
+	}
 	if (!isRecord(runtime.artifacts)) {
-		throw new Error(`Runtime manifest target ${target} has no downloadable artifacts.`);
+		throw new Error(`Runtime manifest target ${target} has no artifact metadata.`);
 	}
 	for (const role of RUNTIME_ROLES) {
 		const artifact = runtime.artifacts[role];
@@ -167,8 +158,6 @@ function requireTarget(manifest, target) {
 			continue;
 		}
 		if (!isRecord(artifact)
-			|| typeof artifact.asset !== 'string'
-			|| basename(artifact.asset) !== artifact.asset
 			|| typeof artifact.size !== 'number'
 			|| !Number.isSafeInteger(artifact.size)
 			|| artifact.size <= 0
@@ -219,13 +208,7 @@ async function verifyArtifacts(manifest, target, directory) {
 	}
 }
 
-async function preserveRuntimeDocumentation(targetDirectory, stagingDirectory) {
-	for (const filename of PRESERVED_RUNTIME_FILES) {
-		await copyFile(join(targetDirectory, filename), join(stagingDirectory, filename));
-	}
-}
-
-async function downloadArtifact(assetUrl, outputPath, artifact, fetchImpl) {
+async function downloadFile(assetUrl, outputPath, expected, fetchImpl) {
 	let source;
 	if (assetUrl.protocol === 'file:') {
 		source = createReadStream(fileURLToPath(assetUrl));
@@ -234,40 +217,121 @@ async function downloadArtifact(assetUrl, outputPath, artifact, fetchImpl) {
 		try {
 			response = await fetchImpl(assetUrl);
 		} catch (error) {
-			throw new Error(`Could not download runtime asset ${assetUrl.href}.`, { cause: error });
+			throw new Error(`Could not download runtime wheel ${assetUrl.href}.`, { cause: error });
 		}
 		if (!response.ok) {
 			throw new Error(
-				`Could not download runtime asset ${assetUrl.href}: HTTP ${response.status} ${response.statusText}.`,
+				`Could not download runtime wheel ${assetUrl.href}: HTTP ${response.status} ${response.statusText}.`,
 			);
 		}
 		if (response.body === null) {
-			throw new Error(`Runtime asset ${assetUrl.href} returned an empty response body.`);
+			throw new Error(`Runtime wheel ${assetUrl.href} returned an empty response body.`);
 		}
 		source = Readable.fromWeb(response.body);
 	}
 
-	const digest = createHash('sha256');
-	let size = 0;
-	const measure = new Transform({
-		transform(chunk, _encoding, callback) {
-			size += chunk.length;
-			digest.update(chunk);
-			callback(null, chunk);
-		},
-	});
 	try {
-		await pipeline(source, createGunzip(), measure, createWriteStream(outputPath));
+		await pipeline(source, createWriteStream(outputPath));
 	} catch (error) {
-		throw new Error(`Could not unpack runtime asset ${assetUrl.href}.`, { cause: error });
+		throw new Error(`Could not download runtime wheel ${assetUrl.href}.`, { cause: error });
 	}
-	const actualHash = digest.digest('hex');
-	if (size !== artifact.size || actualHash !== artifact.sha256) {
+	const fileStat = await stat(outputPath);
+	const actualHash = await hashFile(outputPath);
+	if (fileStat.size !== expected.size || actualHash !== expected.sha256) {
 		throw new Error(
-			`Runtime asset ${assetUrl.href} produced ${size} bytes with SHA-256 ${actualHash}; `
-			+ `expected ${artifact.size} bytes with SHA-256 ${artifact.sha256}.`,
+			`Runtime wheel ${assetUrl.href} has ${fileStat.size} bytes with SHA-256 ${actualHash}; `
+			+ `expected ${expected.size} bytes with SHA-256 ${expected.sha256}.`,
 		);
 	}
+}
+
+async function extractWheel(wheelPath, destination, runtime) {
+	const wantedEntries = new Set(
+		RUNTIME_ROLES
+			.filter(role => runtime[role] !== undefined)
+			.map(role => `${WHEEL_RUNTIME_DIRECTORY}${runtime[role]}`),
+	);
+	let entries;
+	try {
+		entries = unzipSync(await readFile(wheelPath), {
+			filter: file => wantedEntries.has(file.name)
+				|| RUNTIME_DOCUMENT_FILES.some(filename => file.name.endsWith(
+					`.dist-info/licenses/${filename}`,
+				)),
+		});
+	} catch (error) {
+		throw new Error(`Could not unpack runtime wheel ${wheelPath}.`, { cause: error });
+	}
+
+	for (const role of RUNTIME_ROLES) {
+		const filename = runtime[role];
+		if (filename === undefined) {
+			continue;
+		}
+		const contents = findZipEntry(
+			entries,
+			name => name === `${WHEEL_RUNTIME_DIRECTORY}${filename}`,
+		);
+		if (contents === undefined) {
+			throw new Error(`Runtime wheel ${wheelPath} does not contain ${filename}.`);
+		}
+		const outputPath = join(destination, filename);
+		await writeFile(outputPath, contents);
+		await chmod(outputPath, 0o755);
+	}
+	for (const filename of RUNTIME_DOCUMENT_FILES) {
+		const contents = findZipEntry(
+			entries,
+			name => name.endsWith(`.dist-info/licenses/${filename}`),
+		);
+		if (contents === undefined) {
+			throw new Error(`Runtime wheel ${wheelPath} does not contain ${filename}.`);
+		}
+		await writeFile(join(destination, filename), contents);
+	}
+}
+
+function findZipEntry(entries, predicate) {
+	for (const [name, value] of Object.entries(entries)) {
+		if (typeof value === 'object' && !(value instanceof Uint8Array)) {
+			const nested = findZipEntry(value, predicate);
+			if (nested !== undefined) {
+				return nested;
+			}
+		} else if (value instanceof Uint8Array && predicate(name)) {
+			return value;
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Remove other targets' generated binaries before packaging a platform VSIX.
+ *
+ * @param {string} root
+ * @param {string} keepTarget
+ */
+export async function pruneOtherRuntimeTargets(root, keepTarget) {
+	const manifest = await loadRuntimeManifest(root);
+	for (const [target, value] of Object.entries(manifest.targets)) {
+		if (target === keepTarget || !isRecord(value)) {
+			continue;
+		}
+		const runtime = requireTarget(manifest, target);
+		await removeCachedWheel(join(resolve(root), 'resources', 'runtime', target), runtime);
+		for (const role of RUNTIME_ROLES) {
+			if (runtime[role] !== undefined) {
+				await rm(
+					join(resolve(root), 'resources', 'runtime', target, runtime[role]),
+					{ force: true },
+				);
+			}
+		}
+	}
+}
+
+async function removeCachedWheel(directory, runtime) {
+	await rm(join(directory, runtime.wheel.filename), { force: true });
 }
 
 async function replaceRuntimeDirectory(targetDirectory, stagingDirectory) {
@@ -316,6 +380,15 @@ function ensureTrailingSlash(value) {
 	return value.endsWith('/') ? value : `${value}/`;
 }
 
+function isSupportedWheelUrl(value) {
+	try {
+		const url = new URL(value);
+		return url.protocol === 'https:' || url.protocol === 'http:' || url.protocol === 'file:';
+	} catch {
+		return false;
+	}
+}
+
 function isMissingFileError(error) {
 	return isRecord(error) && error.code === 'ENOENT';
 }
@@ -326,12 +399,14 @@ function isRecord(value) {
 
 async function main() {
 	const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-	const target = process.argv[2] ?? hostRuntimeTarget();
-	const manifest = await loadRuntimeManifest(root);
+	const target = resolveRuntimeTarget(process.argv[2]);
 	const assetBaseUrl = process.env.SEEKDOCK_RUNTIME_ASSET_DIR === undefined
-		? process.env.SEEKDOCK_RUNTIME_ASSET_BASE_URL ?? manifest.release.assetBaseUrl
+		? process.env.SEEKDOCK_RUNTIME_ASSET_BASE_URL
 		: ensureTrailingSlash(pathToFileURL(resolve(process.env.SEEKDOCK_RUNTIME_ASSET_DIR)).href);
 	const result = await prepareRuntime({ root, target, assetBaseUrl });
+	if (process.env.SEEKDOCK_RUNTIME_PRUNE === '1') {
+		await pruneOtherRuntimeTargets(root, target);
+	}
 	console.log(
 		`${result.reused ? 'Verified' : 'Prepared'} DeepSeek Harness ${result.target} `
 		+ `runtime ${result.runtimeVersion}.`,

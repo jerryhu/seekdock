@@ -11,6 +11,11 @@ import { resolveDshRuntime } from './host/dsh-runtime.ts';
 import { formatErrorMessage as formatError } from './host/error-format.ts';
 import type { HarnessActivityEvent } from './host/harness-events.ts';
 import {
+	McpServerStore,
+	McpServerStoreError,
+	mcpSecretStorageKey,
+} from './host/mcp/mcp-server-store.ts';
+import {
 	createSessionId,
 	HarnessRunner,
 	type RuntimeSkillSummary,
@@ -23,6 +28,7 @@ import {
 import { StreamDeltaBatcher } from './host/stream-delta-batcher.ts';
 import { SystemPromptStore } from './host/system-prompt-store.ts';
 import { createWebviewDocument } from './host/webview-document.ts';
+import { WorkspaceDiffDocuments } from './host/workspace-diff-documents.ts';
 import {
 	detectLanguage,
 	isLanguage,
@@ -48,6 +54,15 @@ import {
 	type SettingsState,
 } from './shared/settings-rpc.ts';
 import {
+	collectMcpSecretNames,
+	validateMcpServer,
+	type McpImportResult,
+	type McpImportSource,
+	type McpImportSourceId,
+	type McpServer,
+	type McpValidationIssue,
+} from './shared/mcp-servers.ts';
+import {
 	isWebviewToHostMessage,
 	type ComposerFile,
 	type HostToWebviewMessage,
@@ -55,6 +70,7 @@ import {
 	type RuntimeStatus,
 	type WebviewToHostMessage,
 } from './shared/rpc.ts';
+import type { WorkspaceFileDiff } from './shared/workspace-changes.ts';
 
 /** package.json 中 contributes.views 声明的视图 ID。 */
 const VIEW_ID = 'seekdock.chatView';
@@ -102,6 +118,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	private runtimeError: string | undefined;
 	private postChain: Promise<void> = Promise.resolve();
 	private readonly promptStore: SystemPromptStore;
+	private readonly mcpStore: McpServerStore;
+	private readonly workspaceDiffs = new WorkspaceDiffDocuments();
 	private approvalBroker: ApprovalBroker | undefined;
 	private readonly pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>();
 	private readonly earlyApprovalDecisions = new Map<
@@ -139,6 +157,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			vscode.Uri.joinPath(extensionUri, 'resources', 'default-system-prompt.md').fsPath,
 			vscode.Uri.joinPath(storageUri, 'active-system-prompt.md').fsPath,
 			globalState,
+		);
+		this.mcpStore = new McpServerStore(
+			storageUri.fsPath,
+			() => this.workspaceRoot(),
 		);
 	}
 
@@ -195,8 +217,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	}
 
 	/**
-	 * 清空会话。视图已就绪时立即生效，否则先记下待办，
-	 * 待 Webview 创建后补发。返回是否已直接生效。
+	 * Clears the active session. Dispatches immediately when the webview is ready;
+	 * otherwise queues the request until the webview is created.
+	 * @returns Whether the request was handled immediately.
 	 */
 	requestNewChat(): boolean {
 		if (this.runner?.busy) {
@@ -235,8 +258,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		await this.stopRuntimeForReconfiguration();
 		this.resumeActiveSession ||= this.activeSessionId !== undefined;
 		await this.secrets.store(API_KEY_SECRET, apiKey);
+
 		void this.beginRuntimeInitialization(apiKey);
-		await this.postState();
+		await this.postState();		
 	}
 
 	/** Persist the interface language and refresh both Webviews immediately. */
@@ -278,6 +302,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	dispose(): void {
 		this.settingsPanel?.dispose();
 		this.settingsPanel = undefined;
+		this.workspaceDiffs.dispose();
 		void this.shutdown();
 	}
 
@@ -360,6 +385,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 				break;
 			case 'approvalResponse':
 				await this.answerApproval(message);
+				break;
+			case 'requestWorkspaceFileDiff':
+				await this.requestWorkspaceFileDiff(message);
+				break;
+			case 'openWorkspaceFileDiff':
+				await this.openWorkspaceFileDiff(message);
 				break;
 			case 'chat':
 				await this.answer(message);
@@ -917,6 +948,110 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		await this.showSkillDocument(skill);
 	}
 
+	/** @returns the persisted MCP declarations and their globalStorage file. */
+	async getMcpServers(): Promise<{ path: string; servers: readonly McpServer[] }> {
+		try {
+			return {
+				path: this.mcpStore.serversPath,
+				servers: await this.mcpStore.list(),
+			};
+		} catch (error) {
+			throw this.localizeMcpError(error);
+		}
+	}
+
+	/** Validate, persist, and activate one MCP server declaration. */
+	async saveMcpServer(
+		server: McpServer,
+		previousServerName: string | undefined,
+		providedSecrets: Readonly<Record<string, string>>,
+	): Promise<void> {
+		this.assertMcpConfigurationEditable();
+		const issues = validateMcpServer(server);
+		if (issues.length > 0) {
+			throw this.localizeMcpIssue(issues[0]);
+		}
+		try {
+			const current = await this.mcpStore.list();
+			if (current.some(item => (
+				item.serverName === server.serverName
+				&& item.serverName !== previousServerName
+			))) {
+				throw new LocalizedError('hostMcpDuplicateName', {
+					name: server.serverName,
+				});
+			}
+			await this.persistMcpSecrets([server], providedSecrets);
+			await this.mcpStore.save(server, previousServerName);
+			await this.reloadRuntimeForMcpChange();
+		} catch (error) {
+			throw this.localizeMcpError(error);
+		}
+	}
+
+	/** Delete one MCP server and refresh the next Harness composition. */
+	async deleteMcpServer(serverName: string): Promise<void> {
+		this.assertMcpConfigurationEditable();
+		try {
+			await this.mcpStore.remove(serverName);
+			await this.reloadRuntimeForMcpChange();
+		} catch (error) {
+			throw this.localizeMcpError(error);
+		}
+	}
+
+	/** Toggle one MCP server without changing its remaining declaration. */
+	async setMcpServerEnabled(serverName: string, enabled: boolean): Promise<void> {
+		this.assertMcpConfigurationEditable();
+		try {
+			if (enabled) {
+				const server = (await this.mcpStore.list()).find(
+					item => item.serverName === serverName,
+				);
+				if (server === undefined) {
+					throw new LocalizedError('hostMcpNotFound', { name: serverName });
+				}
+				await this.persistMcpSecrets([server], {});
+			}
+			await this.mcpStore.setEnabled(serverName, enabled);
+			await this.reloadRuntimeForMcpChange();
+		} catch (error) {
+			throw this.localizeMcpError(error);
+		}
+	}
+
+	/** Read metadata-only previews from all supported external MCP configuration files. */
+	async getMcpImportSources(): Promise<readonly McpImportSource[]> {
+		try {
+			return await this.mcpStore.importSources();
+		} catch (error) {
+			throw this.localizeMcpError(error);
+		}
+	}
+
+	/** Import selected declarations from one read-only external source. */
+	async importMcpServers(
+		sourceId: McpImportSourceId,
+		originalNames: readonly string[],
+		providedSecrets: Readonly<Record<string, string>>,
+	): Promise<McpImportResult> {
+		this.assertMcpConfigurationEditable();
+		try {
+			const selected = await this.mcpStore.selectForImport(sourceId, originalNames);
+			const currentNames = new Set((await this.mcpStore.list()).map(server => server.serverName));
+			const importable = selected.filter(server => !currentNames.has(server.serverName));
+			await this.persistMcpSecrets(importable, providedSecrets);
+			const result = await this.mcpStore.addImported(importable);
+			result.skipped += selected.length - importable.length;
+			if (result.imported > 0) {
+				await this.reloadRuntimeForMcpChange();
+			}
+			return result;
+		} catch (error) {
+			throw this.localizeMcpError(error);
+		}
+	}
+
 	/** Publish the DSH skill catalog used by the composer's slash menu. */
 	private async requestSkills(
 		message: Extract<WebviewToHostMessage, { type: 'requestSkills' }>,
@@ -1320,6 +1455,25 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 					decision: event.decision,
 				});
 				break;
+			case 'workspaceChanges':
+				if (this.activeSessionId !== undefined && this.runner !== undefined) {
+					try {
+						const changes = await this.runner.workspaceChanges(
+							this.activeSessionId,
+							event.seq,
+						);
+						if (changes !== undefined && changes.files.length > 0) {
+							await this.postMessage({
+								type: 'workspaceChanges',
+								requestId,
+								changes,
+							});
+						}
+					} catch (error) {
+						console.error('SeekDock: failed to read workspace changes', error);
+					}
+				}
+				break;
 			case 'permissionChanged':
 				this.schedulePermissionRefresh();
 				break;
@@ -1329,6 +1483,67 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			case 'turnError':
 				break;
 		}
+	}
+
+	/** Serve one changed-file comparison requested by a hovered file row. */
+	private async requestWorkspaceFileDiff(
+		message: Extract<WebviewToHostMessage, { type: 'requestWorkspaceFileDiff' }>,
+	): Promise<void> {
+		try {
+			const diff = await this.readWorkspaceFileDiff(message);
+			await this.postMessage({
+				type: 'workspaceFileDiff',
+				requestId: message.requestId,
+				diff: diff ?? null,
+			});
+		} catch (error) {
+			await this.postMessage({
+				type: 'workspaceFileDiffError',
+				requestId: message.requestId,
+				message: formatError(error, ''),
+			});
+		}
+	}
+
+	/** Open one changed-file comparison in VS Code's native diff editor. */
+	private async openWorkspaceFileDiff(
+		message: Extract<WebviewToHostMessage, { type: 'openWorkspaceFileDiff' }>,
+	): Promise<void> {
+		let diff: WorkspaceFileDiff | undefined;
+		try {
+			diff = await this.readWorkspaceFileDiff(message);
+		} catch (error) {
+			console.error('SeekDock: failed to open a workspace file diff', error);
+		}
+		if (diff?.kind !== 'text' || diff.hunks.length === 0) {
+			void vscode.window.showWarningMessage(
+				translate(this.language, 'hostWorkspaceDiffUnavailable'),
+			);
+			return;
+		}
+		try {
+			await this.workspaceDiffs.open(
+				diff,
+				translate(this.language, 'workspaceDiffTitle', { path: diff.display }),
+			);
+		} catch (error) {
+			const detail = formatError(error, '');
+			void vscode.window.showErrorMessage(
+				translate(this.language, 'hostWorkspaceDiffOpenFailed', { message: detail }),
+			);
+		}
+	}
+
+	private async readWorkspaceFileDiff(
+		message: Extract<
+			WebviewToHostMessage,
+			{ type: 'requestWorkspaceFileDiff' | 'openWorkspaceFileDiff' }
+		>,
+	): Promise<WorkspaceFileDiff | undefined> {
+		if (message.sessionId !== this.activeSessionId || this.runner === undefined) {
+			return undefined;
+		}
+		return this.runner.workspaceFileDiff(message.sessionId, message.seq, message.index);
 	}
 
 	private async openExternal(
@@ -1496,15 +1711,114 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		return this.runnerInitialization;
 	}
 
+	private workspaceRoot(): string {
+		return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+	}
+
+	private assertMcpConfigurationEditable(): void {
+		if (this.runner?.busy) {
+			throw new LocalizedError('hostBusyMcp');
+		}
+	}
+
+	private async persistMcpSecrets(
+		servers: readonly McpServer[],
+		providedSecrets: Readonly<Record<string, string>>,
+	): Promise<void> {
+		const names = [...new Set(servers.flatMap(collectMcpSecretNames))];
+		for (const name of names) {
+			const provided = providedSecrets[name];
+			if (provided !== undefined && provided.length > 0) {
+				await this.secrets.store(mcpSecretStorageKey(name), provided);
+				continue;
+			}
+			const existing = await this.secrets.get(mcpSecretStorageKey(name));
+			if (existing === undefined || existing.length === 0) {
+				throw new LocalizedError('hostMcpSecretRequired', { name });
+			}
+		}
+	}
+
+	private async reloadRuntimeForMcpChange(): Promise<void> {
+		const hadRuntime = this.runner !== undefined || this.runtimeTask !== undefined;
+		if (hadRuntime) {
+			await this.stopRuntimeForReconfiguration();
+			this.resumeActiveSession ||= this.activeSessionId !== undefined;
+			await this.restartRuntimeFromStorage();
+		}
+		await this.postState();
+	}
+
+	private localizeMcpError(error: unknown): Error {
+		if (error instanceof LocalizedError) {
+			return error;
+		}
+		if (error instanceof McpServerStoreError) {
+			switch (error.code) {
+				case 'duplicateName':
+					return new LocalizedError('hostMcpDuplicateName', {
+						name: error.detail ?? '',
+					});
+				case 'notFound':
+					return new LocalizedError('hostMcpNotFound', {
+						name: error.detail ?? '',
+					});
+				case 'missingSecret':
+					return new LocalizedError('hostMcpSecretRequired', {
+						name: error.detail ?? '',
+					});
+				case 'invalidServer':
+					return error.issues?.[0] === undefined
+						? new LocalizedError('hostMcpInvalidConfiguration')
+						: this.localizeMcpIssue(error.issues[0]);
+				case 'invalidFile':
+					return new LocalizedError('hostMcpStorageCorrupt');
+			}
+		}
+		return new LocalizedError('hostMcpImportFailed', undefined, { cause: error });
+	}
+
+	private localizeMcpIssue(issue: McpValidationIssue): LocalizedError {
+		switch (issue.code) {
+			case 'nameRequired':
+				return new LocalizedError('hostMcpNameRequired');
+			case 'nameInvalid':
+				return new LocalizedError('hostMcpNameInvalid');
+			case 'commandRequired':
+				return new LocalizedError('hostMcpCommandRequired');
+			case 'urlRequired':
+				return new LocalizedError('hostMcpUrlRequired');
+			case 'urlInvalid':
+				return new LocalizedError('hostMcpUrlInvalid');
+			case 'entryNameRequired':
+				return new LocalizedError('hostMcpEntryNameRequired');
+			case 'entryNameDuplicate':
+				return new LocalizedError('hostMcpEntryNameDuplicate', {
+					name: issue.detail ?? '',
+				});
+			case 'entryNameInvalid':
+				return new LocalizedError('hostMcpEntryNameInvalid', {
+					name: issue.detail ?? '',
+				});
+			case 'unsupportedVariable':
+				return new LocalizedError('hostMcpInvalidVariable', {
+					variable: issue.detail ?? '',
+				});
+		}
+	}
+
 	private async createRunner(): Promise<HarnessRunner> {
 		await this.promptStore.syncRuntimePrompt();
 		const runtime = resolveDshRuntime(this.extensionUri.fsPath);
+		const mcpRuntime = await this.mcpStore.writeRuntimePatch(
+			name => this.secrets.get(mcpSecretStorageKey(name)),
+		);
 		this.approvalBroker ??= new ApprovalBroker({
 			onQuestion: question => this.requestApproval(question),
 		});
 		await this.approvalBroker.start();
 		const runner = new HarnessRunner({
-			cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(),
+			cwd: this.workspaceRoot(),
 			dshHome: vscode.Uri.joinPath(this.storageUri, 'dsh-home').fsPath,
 			homePath: vscode.Uri.joinPath(this.storageUri, 'runtime-home').fsPath,
 			patchPath: vscode.Uri.joinPath(
@@ -1513,6 +1827,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 				'dsh',
 				'seekdock-chat.cordis.patch.yml',
 			).fsPath,
+			mcpPatchPath: mcpRuntime.patchPath,
+			mcpEnv: mcpRuntime.env,
 			runtimeLauncherPath: vscode.Uri.joinPath(
 				this.extensionUri,
 				'dist',

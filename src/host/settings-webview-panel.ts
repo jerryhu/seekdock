@@ -12,6 +12,12 @@ import {
 	type SettingsState,
 	type SettingsToHostMessage,
 } from '../shared/settings-rpc.ts';
+import type {
+	McpImportResult,
+	McpImportSource,
+	McpImportSourceId,
+	McpServer,
+} from '../shared/mcp-servers.ts';
 import { formatErrorMessage } from './error-format.ts';
 import { createWebviewDocument } from './webview-document.ts';
 
@@ -30,6 +36,20 @@ export interface SettingsHost {
 	getSkillCatalog(): Promise<SettingsSkillCatalog>;
 	setSkillEnabled(name: string, enabled: boolean): Promise<void>;
 	openSkill(name: string): Promise<void>;
+	getMcpServers(): Promise<{ path: string; servers: readonly McpServer[] }>;
+	saveMcpServer(
+		server: McpServer,
+		previousServerName: string | undefined,
+		secrets: Readonly<Record<string, string>>,
+	): Promise<void>;
+	deleteMcpServer(serverName: string): Promise<void>;
+	setMcpServerEnabled(serverName: string, enabled: boolean): Promise<void>;
+	getMcpImportSources(): Promise<readonly McpImportSource[]>;
+	importMcpServers(
+		sourceId: McpImportSourceId,
+		originalNames: readonly string[],
+		secrets: Readonly<Record<string, string>>,
+	): Promise<McpImportResult>;
 }
 
 interface SettingsAction {
@@ -37,8 +57,8 @@ interface SettingsAction {
 	action: () => Promise<void>;
 	/** Follow-up message omitted when the action already posted its result. */
 	onSuccess?: () => Promise<void>;
-	/** Value to redact if the operation fails after seeing a credential. */
-	sensitiveValue?: string;
+	/** Values to redact if the operation fails after seeing credentials. */
+	sensitiveValues?: readonly string[];
 }
 
 /**
@@ -121,7 +141,7 @@ export class SettingsWebviewPanel implements vscode.Disposable {
 				const apiKey = message.apiKey.trim();
 				await this.runAction({
 					requestId: message.requestId,
-					sensitiveValue: message.apiKey,
+					sensitiveValues: [message.apiKey],
 					action: async () => {
 						if (apiKey.length === 0) {
 							throw new LocalizedError('hostApiKeyRequired');
@@ -182,6 +202,81 @@ export class SettingsWebviewPanel implements vscode.Disposable {
 					onSuccess: () => this.postSaved(message.requestId, 'language'),
 				});
 				break;
+			case 'requestMcpServers':
+				await this.runAction({
+					requestId: message.requestId,
+					action: async () => {
+						const catalog = await this.host.getMcpServers();
+						await this.post({
+							type: 'mcpServers',
+							requestId: message.requestId,
+							path: catalog.path,
+							servers: catalog.servers,
+						});
+					},
+				});
+				break;
+			case 'saveMcpServer':
+				await this.runAction({
+					requestId: message.requestId,
+					sensitiveValues: Object.values(message.secrets),
+					action: () => this.host.saveMcpServer(
+						message.server,
+						message.previousServerName,
+						message.secrets,
+					),
+					onSuccess: () => this.postSaved(message.requestId, 'mcpServer'),
+				});
+				break;
+			case 'deleteMcpServer':
+				await this.runAction({
+					requestId: message.requestId,
+					action: () => this.host.deleteMcpServer(message.serverName),
+					onSuccess: () => this.postSaved(message.requestId, 'mcpServerDelete'),
+				});
+				break;
+			case 'setMcpServerEnabled':
+				await this.runAction({
+					requestId: message.requestId,
+					action: () => this.host.setMcpServerEnabled(
+						message.serverName,
+						message.enabled,
+					),
+					onSuccess: () => this.postSaved(message.requestId, 'mcpServerToggle'),
+				});
+				break;
+			case 'requestMcpImportSources':
+				await this.runAction({
+					requestId: message.requestId,
+					action: async () => {
+						const sources = await this.host.getMcpImportSources();
+						await this.post({
+							type: 'mcpImportSources',
+							requestId: message.requestId,
+							sources,
+						});
+					},
+				});
+				break;
+			case 'importMcpServers':
+				await this.runAction({
+					requestId: message.requestId,
+					sensitiveValues: Object.values(message.secrets),
+					action: async () => {
+						const result = await this.host.importMcpServers(
+							message.sourceId,
+							message.originalNames,
+							message.secrets,
+						);
+						await this.post({
+							type: 'mcpImported',
+							requestId: message.requestId,
+							result,
+						});
+					},
+					onSuccess: () => this.postSaved(message.requestId, 'mcpImport'),
+				});
+				break;
 		}
 	}
 
@@ -197,7 +292,7 @@ export class SettingsWebviewPanel implements vscode.Disposable {
 				requestId: options.requestId,
 				message: formatErrorMessage(
 					error,
-					options.sensitiveValue ?? '',
+					options.sensitiveValues ?? '',
 					this.host.getLanguage(),
 				),
 			});

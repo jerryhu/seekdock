@@ -14,13 +14,13 @@ const REDACTED_API_KEY = '[redacted]';
  * active key is removed before the message crosses the trust boundary.
  *
  * @param error - failure raised by DSH, VS Code, or local validation.
- * @param apiKey - credential that must never appear in rendered errors.
+ * @param sensitiveValues - credentials that must never appear in rendered errors.
  * @param language - language used for `LocalizedError` messages.
  * @returns bounded, credential-free error text.
  */
 export function formatErrorMessage(
 	error: unknown,
-	apiKey = '',
+	sensitiveValues: string | readonly string[] = '',
 	language: Language = 'en',
 ): string {
 	const message = error instanceof LocalizedError
@@ -28,9 +28,15 @@ export function formatErrorMessage(
 		: error instanceof Error
 			? error.message
 			: String(error);
-	const redacted = apiKey.length === 0
-		? message
-		: message.replaceAll(apiKey, REDACTED_API_KEY);
+	const values = typeof sensitiveValues === 'string'
+		? [sensitiveValues]
+		: sensitiveValues;
+	const redacted = values
+		.filter(value => value.length > 0)
+		.reduce(
+			(current, value) => current.replaceAll(value, REDACTED_API_KEY),
+			message,
+		);
 	return redacted.length > MAX_VISIBLE_ERROR_LENGTH
 		? `${redacted.slice(0, MAX_VISIBLE_ERROR_LENGTH)}…`
 		: redacted;

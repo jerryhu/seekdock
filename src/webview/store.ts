@@ -7,6 +7,7 @@ import type {
 	ToolCall,
 	TranscriptMessage,
 } from '../shared/rpc.ts';
+import type { WorkspaceChangeSet } from '../shared/workspace-changes.ts';
 
 export type MessageId = string;
 
@@ -46,6 +47,7 @@ export interface AssistantMessage {
 	status: 'streaming' | 'complete' | 'cancelled' | 'error';
 	error?: string;
 	live?: AssistantLive;
+	changes?: WorkspaceChangeSet;
 	createdAt: number;
 	durationMs?: number;
 }
@@ -160,6 +162,12 @@ export class ConversationStore {
 				break;
 			case 'approvalResolved':
 				this.resolveApproval(message.approvalId, message.toolCallId, message.decision);
+				break;
+			case 'workspaceChanges':
+				this.touchAssistant(message.requestId, assistant => ({
+					...assistant,
+					changes: message.changes,
+				}));
 				break;
 			case 'responseEnd':
 				this.finishRequest(message.requestId, message.interrupted === true);

@@ -31,9 +31,8 @@ const HOST_TARGETS: Record<string, string> = {
 /**
  * Resolve the Python SDK runtime executable bundled for the extension host.
  *
- * Only the macOS arm64 payload is packaged today. The manifest already names
- * the other Python SDK targets so GitHub builds can add them without changing
- * the lookup contract.
+ * Platform-specific VSIX builds include one manifest target from the matching
+ * official Python SDK wheel.
  *
  * @param extensionPath - Absolute extension installation directory.
  * @param platform - Node platform, injectable for tests.

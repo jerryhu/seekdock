@@ -456,6 +456,83 @@ suite('RPC contract', () => {
 		}));
 	});
 
+	test('validates workspace change requests and responses', () => {
+		assert.ok(isWebviewToHostMessage({
+			type: 'requestWorkspaceFileDiff',
+			requestId: 'diff-request-1',
+			sessionId: 'session-1',
+			seq: 12,
+			index: 0,
+		}));
+		assert.ok(isWebviewToHostMessage({
+			type: 'openWorkspaceFileDiff',
+			requestId: 'diff-open-1',
+			sessionId: 'session-1',
+			seq: 12,
+			index: 0,
+		}));
+		assert.ok(!isWebviewToHostMessage({
+			type: 'requestWorkspaceFileDiff',
+			requestId: 'diff-request-1',
+			sessionId: 'session-1',
+			seq: -1,
+			index: 0,
+		}));
+		const changes = {
+			sessionId: 'session-1',
+			seq: 12,
+			turn: 2,
+			files: [{
+				path: 'src/app.ts',
+				display: 'src/app.ts',
+				added: 1,
+				deleted: 1,
+			}],
+			total: 1,
+			added: 1,
+			deleted: 1,
+		};
+		assert.ok(isHostToWebviewMessage({
+			type: 'workspaceChanges',
+			requestId: 'request-1',
+			changes,
+		}));
+		assert.ok(isHostToWebviewMessage({
+			type: 'workspaceFileDiff',
+			requestId: 'diff-request-1',
+			diff: {
+				kind: 'text',
+				path: 'src/app.ts',
+				display: 'src/app.ts',
+				before: true,
+				after: true,
+				hunks: [{
+					oldStart: 1,
+					oldLines: 1,
+					newStart: 1,
+					newLines: 1,
+					lines: ['-old', '+new'],
+				}],
+				coarse: false,
+			},
+		}));
+		assert.ok(isHostToWebviewMessage({
+			type: 'workspaceFileDiff',
+			requestId: 'diff-request-1',
+			diff: null,
+		}));
+		assert.ok(isHostToWebviewMessage({
+			type: 'workspaceFileDiffError',
+			requestId: 'diff-request-1',
+			message: 'missing',
+		}));
+		assert.ok(!isHostToWebviewMessage({
+			type: 'workspaceChanges',
+			requestId: 'request-1',
+			changes: { ...changes, total: 0 },
+		}));
+	});
+
 	test('rejects malformed tool calls and missing request ids', () => {
 		assert.ok(!isHostToWebviewMessage({
 			type: 'assistantStreamStart',

@@ -12,6 +12,13 @@ import {
 import type { PermissionCatalog } from '../shared/rpc.ts';
 import { isRecord } from '../shared/value-validation.ts';
 import {
+	isWorkspaceChangesSummary,
+	isWorkspaceFileDiff,
+	type WorkspaceChangeSet,
+	type WorkspaceChangesSummary,
+	type WorkspaceFileDiff,
+} from '../shared/workspace-changes.ts';
+import {
 	HarnessEventTranslator,
 	type HarnessActivityEvent,
 } from './harness-events.ts';
@@ -21,6 +28,10 @@ interface HarnessRunnerOptions {
 	dshHome: string;
 	homePath: string;
 	patchPath: string;
+	/** Generated patch containing enabled MCP client rows. */
+	mcpPatchPath: string;
+	/** Secret-valued environment entries referenced by the MCP patch. */
+	mcpEnv: Readonly<Record<string, string>>;
 	systemPromptPath: string;
 	runtimeLauncherPath: string;
 	runtimePath: string;
@@ -41,6 +52,7 @@ interface BridgeRequest<T> {
 	label: string;
 	parse: (value: unknown) => T | undefined;
 	invalidResponseMessage: string;
+	timeoutMs?: number;
 }
 
 export interface AskResult {
@@ -80,6 +92,7 @@ export class HarnessRunner {
 	private readonly skillSocketPath = createRuntimeSocketPath('skill');
 	private readonly sessionTitleSocketPath = createRuntimeSocketPath('session-title');
 	private readonly planSocketPath = createRuntimeSocketPath('plan');
+	private readonly workspaceChangesSocketPath = createRuntimeSocketPath('workspace-changes');
 	private running = false;
 
 	constructor(private readonly options: HarnessRunnerOptions) { }
@@ -374,6 +387,50 @@ export class HarnessRunner {
 	}
 
 	/**
+	 * Read the live changed-file summary announced by one workspace event.
+	 *
+	 * @param sessionId - session that appended the event.
+	 * @param seq - workspace/changes event sequence.
+	 * @returns the validated summary, or undefined once DSH no longer serves it.
+	 */
+	async workspaceChanges(
+		sessionId: string,
+		seq: number,
+	): Promise<WorkspaceChangeSet | undefined> {
+		const response = await this.workspaceChangesRequest({ action: 'summary', sessionId, seq });
+		if (!response.ok || response.summary === undefined) {
+			return undefined;
+		}
+		return {
+			sessionId,
+			seq,
+			...response.summary,
+		};
+	}
+
+	/**
+	 * Read one changed file's live turn-start/turn-end comparison.
+	 *
+	 * @param sessionId - session that appended the event.
+	 * @param seq - workspace/changes event sequence.
+	 * @param index - file index in the announced summary.
+	 * @returns the comparison, or undefined once DSH no longer serves it.
+	 */
+	async workspaceFileDiff(
+		sessionId: string,
+		seq: number,
+		index: number,
+	): Promise<WorkspaceFileDiff | undefined> {
+		const response = await this.workspaceChangesRequest({
+			action: 'diff',
+			sessionId,
+			seq,
+			index,
+		});
+		return response.ok ? response.diff : undefined;
+	}
+
+	/**
 	 * Read the user-invocable skill catalog from DSH's registry.
 	 *
 	 * @returns skill metadata without loading instruction bodies.
@@ -448,13 +505,26 @@ export class HarnessRunner {
 		});
 	}
 
+	private async workspaceChangesRequest(
+		payload: Record<string, unknown>,
+	): Promise<WorkspaceChangesBridgeResponse> {
+		return this.requestBridge({
+			socketPath: this.workspaceChangesSocketPath,
+			payload,
+			label: 'workspace-changes',
+			parse: parseWorkspaceChangesResponse,
+			invalidResponseMessage: 'DeepSeek Harness returned an invalid workspace-changes response.',
+			timeoutMs: 15_000,
+		});
+	}
+
 	private async requestBridge<T>(request: BridgeRequest<T>): Promise<T> {
 		// A bridge response is untrusted at this boundary. Parse it before any
 		// caller reads fields that TypeScript cannot verify at runtime.
 		const response = await requestControl(
 			request.socketPath,
 			request.payload,
-			5_000,
+			request.timeoutMs ?? 5_000,
 			request.label,
 		);
 		const parsed = request.parse(response);
@@ -492,13 +562,15 @@ export class HarnessRunner {
 				SEEKDOCK_PLAN_SOCKET: this.planSocketPath,
 				SEEKDOCK_SKILL_SOCKET: this.skillSocketPath,
 				SEEKDOCK_SESSION_TITLE_SOCKET: this.sessionTitleSocketPath,
+				SEEKDOCK_WORKSPACE_CHANGES_SOCKET: this.workspaceChangesSocketPath,
 				SEEKDOCK_SYSTEM_PROMPT_PATH: this.options.systemPromptPath,
 				SEEKDOCK_USER_SKILL_DIR: join(agentsHome, 'skills'),
 				SEEKDOCK_WORKSPACE_SKILL_DIR: join(resolve(this.options.cwd), '.agents', 'skills'),
+				...this.options.mcpEnv,
 				USERPROFILE: this.options.homePath,
 			},
 			initializeTimeoutMs: 30_000,
-			patches: [this.options.patchPath],
+			patches: [this.options.patchPath, this.options.mcpPatchPath],
 			profile: 'sdk',
 			provider: 'deepseek-official',
 			model: selection.model,
@@ -598,6 +670,14 @@ interface SessionTitleBridgeResponse {
 	message?: string;
 }
 
+interface WorkspaceChangesBridgeResponse {
+	ok: boolean;
+	summary?: WorkspaceChangesSummary;
+	diff?: WorkspaceFileDiff;
+	code?: string;
+	message?: string;
+}
+
 function parsePermissionResponse(value: unknown): PermissionBridgeResponse | undefined {
 	if (!isRecord(value) || typeof value.ok !== 'boolean') {
 		return undefined;
@@ -677,6 +757,27 @@ function parseSessionTitleResponse(value: unknown): SessionTitleBridgeResponse |
 	return {
 		ok: value.ok,
 		...(typeof value.title === 'string' ? { title: value.title } : {}),
+		...(typeof value.code === 'string' ? { code: value.code } : {}),
+		...(typeof value.message === 'string' ? { message: value.message } : {}),
+	};
+}
+
+function parseWorkspaceChangesResponse(
+	value: unknown,
+): WorkspaceChangesBridgeResponse | undefined {
+	if (!isRecord(value) || typeof value.ok !== 'boolean') {
+		return undefined;
+	}
+	if (value.summary !== undefined && !isWorkspaceChangesSummary(value.summary)) {
+		return undefined;
+	}
+	if (value.diff !== undefined && !isWorkspaceFileDiff(value.diff)) {
+		return undefined;
+	}
+	return {
+		ok: value.ok,
+		...(value.summary === undefined ? {} : { summary: value.summary }),
+		...(value.diff === undefined ? {} : { diff: value.diff }),
 		...(typeof value.code === 'string' ? { code: value.code } : {}),
 		...(typeof value.message === 'string' ? { message: value.message } : {}),
 	};

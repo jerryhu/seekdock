@@ -14,7 +14,7 @@
   ],
   "publisher": "JerryHu",
   "license": "MIT",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "repository": {
     "type": "git",
@@ -27,6 +27,14 @@
     "sdkClient": "0.2.1-rc.2",
     "sdkProtocol": "0.2.1-rc.2",
     "runtime": "0.2.1rc2",
+    "workspaceChanges": "0.2.1-rc.2",
+    "runtimeTargets": [
+      "linux-x64",
+      "linux-arm64",
+      "macos-arm64",
+      "macos-x64",
+      "win-x64"
+    ],
     "experimentalAutoReview": "0.2.1-rc.2",
     "sessionFormat": 4
   },
@@ -119,16 +127,21 @@
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "npm run check-types && npm run lint && npm run prepare-runtime && npm run verify-runtime && node esbuild.js --production && npm run smoke-runtime",
-    "package:mac-arm64": "npx --yes @vscode/vsce package --target darwin-arm64 --allow-missing-repository",
+    "package:linux-x64": "node scripts/package-target.mjs linux-x64",
+    "package:linux-arm64": "node scripts/package-target.mjs linux-arm64",
+    "package:mac-arm64": "node scripts/package-target.mjs macos-arm64",
+    "package:mac-x64": "node scripts/package-target.mjs macos-x64",
+    "package:win-x64": "node scripts/package-target.mjs win-x64",
+    "package:all": "node scripts/package-target.mjs all",
     "publish:marketplace": "npx --yes @vscode/vsce publish --readme MARKETPLACE_README.md",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint && npm run prepare-runtime && npm run test:runtime-prepare",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint && npm run prepare-runtime && npm run test:runtime-prepare && npm run test:permission-bridge",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
     "prepare-runtime": "node scripts/prepare-runtime.mjs",
-    "build-runtime-assets": "node scripts/build-runtime-assets.mjs",
     "test:runtime-prepare": "node --test scripts/prepare-runtime.test.mjs",
+    "test:permission-bridge": "node --test scripts/permission-bridge.test.mjs",
     "smoke-runtime": "node scripts/smoke-runtime.mjs",
     "verify-runtime": "node scripts/verify-runtime.mjs",
     "test": "vscode-test"
@@ -143,6 +156,7 @@
     "@vscode/test-electron": "^3.0.0",
     "esbuild": "^0.28.1",
     "eslint": "^10.5.0",
+    "fflate": "0.8.2",
     "npm-run-all": "^4.1.5",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1"
@@ -158,6 +172,7 @@
     "@deepseek-ai/dsh-session-persistence": "0.2.1-rc.2",
     "@deepseek-ai/dsh-session-persistence-jsonl": "0.2.1-rc.2",
     "@deepseek-ai/dsh-session-title": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-workspace-changes": "0.2.1-rc.2",
     "lucide-preact": "1.59.0",
     "preact": "10.29.8"
   }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import {
 	ArrowUp,
@@ -65,6 +65,11 @@ interface ComposerProps {
 	vscode: VsCodeApi;
 }
 
+function fitTextareaToContent(element: HTMLTextAreaElement): void {
+	element.style.height = 'auto';
+	element.style.height = `${element.scrollHeight}px`;
+}
+
 /**
  * Composer input and controls for prompts, files, skills, permissions, plan
  * mode, and the model route. The host remains responsible for sending turns.
@@ -126,6 +131,25 @@ export function Composer({
 	useEffect(() => {
 		input.current?.focus();
 	}, [focusToken]);
+
+	useLayoutEffect(() => {
+		const element = input.current;
+		if (element === null) {
+			return;
+		}
+		fitTextareaToContent(element);
+		const observer = new ResizeObserver(() => fitTextareaToContent(element));
+		observer.observe(document.documentElement);
+		return () => observer.disconnect();
+	}, []);
+
+	useLayoutEffect(() => {
+		const element = input.current;
+		if (element === null) {
+			return;
+		}
+		fitTextareaToContent(element);
+	}, [text]);
 
 	useEffect(() => {
 		if (resetToken > 0) {
@@ -198,7 +222,6 @@ export function Composer({
 		vscode.setState({ draft: '', files: [] });
 	};
 
-	const rows = Math.min(6, Math.max(1, text.split('\n').length));
 	const planModeEnabled = planModePending === true ? !planModeActive : planModeActive;
 	const addMenuDisabled = busy
 		|| settingModelSelection
@@ -339,7 +362,7 @@ export function Composer({
 				<textarea
 					ref={input}
 					id="prompt"
-					rows={rows}
+					rows={3}
 					value={text}
 					placeholder={selectedSkills.length > 0
 						? ''

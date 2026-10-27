@@ -23,6 +23,38 @@ suite('Settings RPC contract', () => {
 			requestId: 'language-1',
 			language: 'ja',
 		}));
+		assert.ok(isSettingsToHostMessage({
+			type: 'saveMcpServer',
+			requestId: 'mcp-1',
+			previousServerName: 'old',
+			server: {
+				serverName: 'local',
+				transport: 'stdio',
+				enabled: true,
+				command: 'node',
+				args: ['server.js'],
+				env: [],
+			},
+			secrets: { token: 'shh' },
+		}));
+		assert.ok(isSettingsToHostMessage({
+			type: 'requestMcpImportSources',
+			requestId: 'mcp-import-1',
+		}));
+		// Candidate values reach the host so it can return a localized validation error.
+		assert.ok(isSettingsToHostMessage({
+			type: 'saveMcpServer',
+			requestId: 'mcp-invalid-1',
+			server: {
+				serverName: 'bad name',
+				transport: 'stdio',
+				enabled: true,
+				command: '',
+				args: [],
+				env: [],
+			},
+			secrets: {},
+		}));
 		assert.ok(!isSettingsToHostMessage({
 			type: 'setLanguage',
 			requestId: 'language-1',
@@ -93,6 +125,38 @@ suite('Settings RPC contract', () => {
 			type: 'error',
 			requestId: 'settings-1',
 			message: 'failed',
+		}));
+		assert.ok(isHostToSettingsMessage({
+			type: 'mcpServers',
+			requestId: 'mcp-1',
+			path: '/storage/mcp/servers.json',
+			servers: [{
+				serverName: 'local',
+				transport: 'http',
+				enabled: true,
+				url: 'https://example.com/mcp',
+				headers: [{ name: 'Authorization', value: '${secret:token}' }],
+			}],
+		}));
+		assert.ok(isHostToSettingsMessage({
+			type: 'mcpImportSources',
+			requestId: 'mcp-import-1',
+			sources: [{
+				id: 'vscode',
+				path: '/workspace/.vscode/mcp.json',
+				available: true,
+				servers: [{
+					originalName: 'My Server',
+					serverName: 'My_Server_c2d9a82f',
+					transport: 'stdio',
+					secretNames: [],
+				}],
+			}],
+		}));
+		assert.ok(isHostToSettingsMessage({
+			type: 'mcpImported',
+			requestId: 'mcp-import-2',
+			result: { imported: 1, skipped: 0 },
 		}));
 	});
 });

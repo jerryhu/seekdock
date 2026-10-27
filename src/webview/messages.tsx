@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import {
+	Brain,
 	Check,
 	ChevronDown,
 	ChevronRight,
+	ChevronUp,
 	CircleAlert,
 	Copy,
 	LoaderCircle,
@@ -19,14 +21,32 @@ import {
 } from './store.ts';
 import { ApprovalView, ToolCallView } from './tool-call.tsx';
 import { copyText } from './copy.ts';
+import { formatMessageClock } from './message-clock.ts';
+import { reasoningSummary } from './reasoning-summary.ts';
 import type { Approval, ApprovalAnswer } from '../shared/rpc.ts';
-import type { Translator } from '../shared/i18n/index.ts';
+import type {
+	WorkspaceChangeSet,
+	WorkspaceFileDiff,
+} from '../shared/workspace-changes.ts';
+import { intlLocale, type Translator } from '../shared/i18n/index.ts';
 import { useI18n } from './i18n-context.tsx';
+import { WorkspaceChangesView } from './workspace-changes.tsx';
 
 interface MessageListProps {
 	store: ConversationStore;
 	onOpenLink: (url: string) => void;
 	onApprovalAnswer: (approval: Approval, decision: ApprovalAnswer) => void;
+	onRequestWorkspaceDiff: (
+		changes: WorkspaceChangeSet,
+		index: number,
+	) => Promise<WorkspaceFileDiff | null>;
+	onOpenWorkspaceDiff: (changes: WorkspaceChangeSet, index: number) => void;
+}
+
+interface SelectionMenuState {
+	x: number;
+	y: number;
+	text: string;
 }
 
 /** Renders the conversation order while subscribing to each message separately. */
@@ -34,10 +54,13 @@ export function MessageList({
 	store,
 	onOpenLink,
 	onApprovalAnswer,
+	onRequestWorkspaceDiff,
+	onOpenWorkspaceDiff,
 }: MessageListProps): JSX.Element {
 	const { t } = useI18n();
 	const order = useOrder(store);
 	const viewport = useRef<HTMLDivElement>(null);
+	const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState>();
 
 	useEffect(() => {
 		const element = viewport.current;
@@ -61,29 +84,84 @@ export function MessageList({
 		};
 	}, []);
 
+	useEffect(() => {
+		const element = viewport.current;
+		if (element === null) {
+			return;
+		}
+		const onKeyDown = (event: KeyboardEvent): void => {
+			if (
+				event.defaultPrevented
+				|| event.altKey
+				|| event.shiftKey
+				|| !(event.metaKey || event.ctrlKey)
+				|| event.key.toLowerCase() !== 'c'
+				|| isEditableTarget(event.target)
+			) {
+				return;
+			}
+			const text = selectedTextWithin(element);
+			if (text === undefined) {
+				return;
+			}
+			// VS Code handles Webview copy commands at its own layer, so stop the
+			// shortcut here and copy this DOM selection directly.
+			event.preventDefault();
+			event.stopPropagation();
+			void copyText(text);
+		};
+		const onContextMenu = (event: MouseEvent): void => {
+			const text = selectedTextWithin(element);
+			if (text === undefined) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			setSelectionMenu({ x: event.clientX, y: event.clientY, text });
+		};
+		document.addEventListener('keydown', onKeyDown, true);
+		element.addEventListener('contextmenu', onContextMenu);
+		return () => {
+			document.removeEventListener('keydown', onKeyDown, true);
+			element.removeEventListener('contextmenu', onContextMenu);
+		};
+	}, []);
+
 	return (
-		<div className="messages" id="messages" ref={viewport}>
-			<div
-				className={`message-column${order.length === 0 ? ' empty' : ''}`}
-			>
-				{order.length === 0
-					? (
-						<div className="empty-state">
-							<div className="empty-mark"><Sparkles size={18} /></div>
-							<p>{t('emptyPrompt')}</p>
-						</div>
-					)
-					: order.map(id => (
-						<MessageRow
-							key={id}
-							id={id}
-							store={store}
-							onOpenLink={onOpenLink}
-							onApprovalAnswer={onApprovalAnswer}
-						/>
-					))}
+		<>
+			<div className="messages" id="messages" ref={viewport}>
+				<div
+					className={`message-column${order.length === 0 ? ' empty' : ''}`}
+				>
+					{order.length === 0
+						? (
+							<div className="empty-state">
+								<div className="empty-mark"><Sparkles size={18} /></div>
+								<p>{t('emptyPrompt')}</p>
+							</div>
+						)
+						: order.map(id => (
+							<MessageRow
+								key={id}
+								id={id}
+								store={store}
+								onOpenLink={onOpenLink}
+								onApprovalAnswer={onApprovalAnswer}
+								onRequestWorkspaceDiff={onRequestWorkspaceDiff}
+								onOpenWorkspaceDiff={onOpenWorkspaceDiff}
+							/>
+						))}
+				</div>
 			</div>
-		</div>
+			{selectionMenu === undefined
+				? null
+				: (
+					<SelectionCopyMenu
+						menu={selectionMenu}
+						onClose={() => setSelectionMenu(undefined)}
+					/>
+				)}
+		</>
 	);
 }
 
@@ -92,11 +170,15 @@ function MessageRow({
 	store,
 	onOpenLink,
 	onApprovalAnswer,
+	onRequestWorkspaceDiff,
+	onOpenWorkspaceDiff,
 }: {
 	id: MessageId;
 	store: ConversationStore;
 	onOpenLink: (url: string) => void;
 	onApprovalAnswer: (approval: Approval, decision: ApprovalAnswer) => void;
+	onRequestWorkspaceDiff: MessageListProps['onRequestWorkspaceDiff'];
+	onOpenWorkspaceDiff: MessageListProps['onOpenWorkspaceDiff'];
 }): JSX.Element | null {
 	const message = useMessage(store, id);
 	if (message === undefined) {
@@ -109,14 +191,25 @@ function MessageRow({
 				message={message}
 				onOpenLink={onOpenLink}
 				onApprovalAnswer={onApprovalAnswer}
+				onRequestWorkspaceDiff={onRequestWorkspaceDiff}
+				onOpenWorkspaceDiff={onOpenWorkspaceDiff}
 			/>
 		);
 }
 
 function UserMessageView({ message }: { message: Extract<ChatMessage, { kind: 'user' }> }): JSX.Element {
+	const { t } = useI18n();
 	return (
 		<article className="message user-message">
 			<div className="user-bubble">{message.text}</div>
+			<footer className="user-message-meta">
+				<MessageTimestamp createdAt={message.createdAt} />
+				<CopyButton
+					text={message.text}
+					label={t('copyMessage')}
+					tooltipAlign="end"
+				/>
+			</footer>
 		</article>
 	);
 }
@@ -125,10 +218,14 @@ function AssistantMessageView({
 	message,
 	onOpenLink,
 	onApprovalAnswer,
+	onRequestWorkspaceDiff,
+	onOpenWorkspaceDiff,
 }: {
 	message: AssistantMessage;
 	onOpenLink: (url: string) => void;
 	onApprovalAnswer: (approval: Approval, decision: ApprovalAnswer) => void;
+	onRequestWorkspaceDiff: MessageListProps['onRequestWorkspaceDiff'];
+	onOpenWorkspaceDiff: MessageListProps['onOpenWorkspaceDiff'];
 }): JSX.Element {
 	const { t } = useI18n();
 	const text = message.entries
@@ -137,8 +234,9 @@ function AssistantMessageView({
 	const streaming = message.status === 'streaming';
 	const cancelled = message.status === 'cancelled';
 	const phase = activityLabel(message.live, t);
-	const [processOpen, setProcessOpen] = useState(false);
+	const [processOpen, setProcessOpen] = useState(true);
 	const durationMs = useElapsedDuration(message);
+	const duration = formatDuration(durationMs, t);
 	const hasProcess = message.entries.some(
 		entry => entry.kind === 'reasoning' || entry.kind === 'tool',
 	) || message.live?.blocks.some(block => block.kind === 'reasoning') === true
@@ -161,7 +259,11 @@ function AssistantMessageView({
 					data-tooltip-align="start"
 					onClick={() => setProcessOpen(value => !value)}
 				>
-					<span>{t('elapsed', { duration: formatDuration(durationMs, t) })}</span>
+					<span>
+						{streaming
+							? t('workingFor', { duration })
+							: t('workedFor', { duration })}
+					</span>
 					{hasProcess
 						? processOpen
 							? <ChevronDown size={13} aria-hidden="true" />
@@ -236,10 +338,23 @@ function AssistantMessageView({
 					)
 					: null}
 			</div>
+			{!streaming
+				&& (message.status === 'complete' || message.status === 'cancelled')
+				&& message.changes !== undefined
+				&& message.changes.files.length > 0
+				? (
+					<WorkspaceChangesView
+						changes={message.changes}
+						onRequestDiff={onRequestWorkspaceDiff}
+						onOpenDiff={onOpenWorkspaceDiff}
+					/>
+				)
+				: null}
 			{!streaming && text.length > 0
 				? (
 					<footer className="assistant-actions">
-						<CopyButton text={text} />
+						<CopyButton text={text} label={t('copyAnswer')} />
+						<MessageTimestamp createdAt={message.createdAt} />
 					</footer>
 				)
 				: null}
@@ -260,7 +375,7 @@ function LiveAssistantView({
 	const hasText = live.blocks.some(block => block.text.trim().length > 0);
 	return (
 		<>
-			{live.blocks.map((block) => {
+			{live.blocks.map((block, index) => {
 				if (block.kind === 'reasoning') {
 					return processOpen
 						? (
@@ -268,6 +383,7 @@ function LiveAssistantView({
 								key={`${live.attemptId}:${block.blockIndex}`}
 								text={block.text}
 								onOpenLink={onOpenLink}
+								running={live.phase === 'thinking' && index === live.blocks.length - 1}
 							/>
 						)
 						: null;
@@ -299,19 +415,59 @@ function LiveAssistantView({
 function ReasoningView({
 	text,
 	onOpenLink,
+	running = false,
 }: {
 	text: string;
 	onOpenLink: (url: string) => void;
+	running?: boolean;
 }): JSX.Element | null {
+	const { t } = useI18n();
+	const [open, setOpen] = useState(false);
 	const normalized = text.trim();
 	if (normalized.length === 0) {
 		return null;
 	}
+	const summary = reasoningSummary(text, running);
 	return (
-		<section className="reasoning">
-			<div className="reasoning-body">
-				<Markdown text={text} onOpenLink={onOpenLink} />
-			</div>
+		<section className={`reasoning${running ? ' running' : ''}`}>
+			<button
+				type="button"
+				className="reasoning-header process-row"
+				aria-expanded={open}
+				aria-label={open ? t('collapseDetails') : t('expandDetails')}
+				data-tooltip={open ? t('collapseDetails') : t('expandDetails')}
+				data-tooltip-align="start"
+				onClick={() => setOpen(value => !value)}
+			>
+				<span className="process-leading" aria-hidden="true">
+					{open
+						? <ChevronUp size={14} />
+						: (
+							<>
+								<span className="process-leading-icon"><Brain size={14} /></span>
+								<ChevronDown size={14} className="process-leading-chevron" />
+							</>
+						)}
+				</span>
+				<span className="reasoning-heading">
+					<span className="reasoning-label">{t('reasoningLabel')}</span>
+					{summary.length > 0
+						? (
+							<>
+								<span className="process-separator" aria-hidden="true" />
+								<span className="reasoning-summary">{summary}</span>
+							</>
+						)
+						: null}
+				</span>
+			</button>
+			{open
+				? (
+					<div className="reasoning-body">
+						<Markdown text={text} onOpenLink={onOpenLink} />
+					</div>
+				)
+				: null}
 		</section>
 	);
 }
@@ -350,16 +506,35 @@ function formatDuration(durationMs: number | undefined, t: Translator): string {
 	return t('durationSeconds', { seconds });
 }
 
-function CopyButton({ text }: { text: string }): JSX.Element {
+function MessageTimestamp({ createdAt }: { createdAt: number }): JSX.Element {
+	const { language } = useI18n();
+	const date = new Date(createdAt);
+	const formatted = formatMessageClock(createdAt, intlLocale(language));
+	return (
+		<time className="message-timestamp" dateTime={date.toISOString()}>
+			{formatted}
+		</time>
+	);
+}
+
+function CopyButton({
+	text,
+	label,
+	tooltipAlign = 'start',
+}: {
+	text: string;
+	label: string;
+	tooltipAlign?: 'start' | 'end';
+}): JSX.Element {
 	const { t } = useI18n();
 	const [copied, setCopied] = useState(false);
 	return (
 		<button
 			type="button"
 			className="icon-button"
-			aria-label={copied ? t('copied') : t('copyAnswer')}
-			data-tooltip={copied ? t('copied') : t('copyAnswer')}
-			data-tooltip-align="start"
+			aria-label={copied ? t('copied') : label}
+			data-tooltip={copied ? t('copied') : label}
+			data-tooltip-align={tooltipAlign}
 			onClick={() => {
 				void copyText(text).then(() => {
 					setCopied(true);
@@ -370,6 +545,86 @@ function CopyButton({ text }: { text: string }): JSX.Element {
 			{copied ? <Check size={13} /> : <Copy size={13} />}
 		</button>
 	);
+}
+
+function SelectionCopyMenu({
+	menu,
+	onClose,
+}: {
+	menu: SelectionMenuState;
+	onClose: () => void;
+}): JSX.Element {
+	const { t } = useI18n();
+	const menuElement = useRef<HTMLDivElement>(null);
+	const left = Math.min(menu.x, Math.max(8, window.innerWidth - 168));
+	const top = Math.min(menu.y, Math.max(8, window.innerHeight - 52));
+
+	useEffect(() => {
+		const onPointerDown = (event: PointerEvent): void => {
+			if (event.target instanceof Node && menuElement.current?.contains(event.target)) {
+				return;
+			}
+			onClose();
+		};
+		const onKeyDown = (event: KeyboardEvent): void => {
+			if (event.key !== 'Escape') {
+				return;
+			}
+			event.preventDefault();
+			onClose();
+		};
+		document.addEventListener('pointerdown', onPointerDown, true);
+		document.addEventListener('keydown', onKeyDown, true);
+		document.addEventListener('scroll', onClose, true);
+		window.addEventListener('resize', onClose);
+		window.addEventListener('blur', onClose);
+		return () => {
+			document.removeEventListener('pointerdown', onPointerDown, true);
+			document.removeEventListener('keydown', onKeyDown, true);
+			document.removeEventListener('scroll', onClose, true);
+			window.removeEventListener('resize', onClose);
+			window.removeEventListener('blur', onClose);
+		};
+	}, [onClose]);
+
+	return (
+		<div
+			ref={menuElement}
+			className="selection-copy-menu"
+			role="menu"
+			style={{ left: `${left}px`, top: `${top}px` }}
+			onPointerDown={event => event.stopPropagation()}
+		>
+			<button
+				type="button"
+				className="selection-copy-menu-item"
+				role="menuitem"
+				onClick={() => {
+					void copyText(menu.text).then(onClose);
+				}}
+			>
+				<Copy size={13} aria-hidden="true" />
+				<span>{t('copySelection')}</span>
+			</button>
+		</div>
+	);
+}
+
+function selectedTextWithin(element: Element): string | undefined {
+	const selection = window.getSelection();
+	if (selection === null || selection.isCollapsed || selection.rangeCount === 0) {
+		return undefined;
+	}
+	const text = selection.toString();
+	if (text.length === 0 || !element.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+		return undefined;
+	}
+	return text;
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+	return target instanceof HTMLElement
+		&& (target.isContentEditable || target.matches('input, textarea, select'));
 }
 
 function activityLabel(live: AssistantLive | undefined, t: Translator): string {

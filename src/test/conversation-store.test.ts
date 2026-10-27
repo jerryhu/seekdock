@@ -165,6 +165,44 @@ suite('Conversation store', () => {
 		assert.strictEqual(message.live, undefined);
 	});
 
+	test('attaches a workspace summary before or after the response settles', () => {
+		const store = new ConversationStore();
+		const changes = {
+			sessionId: 'session-1',
+			seq: 9,
+			turn: 1,
+			files: [{
+				path: 'src/app.ts',
+				display: 'src/app.ts',
+				added: 2,
+				deleted: 1,
+			}],
+			total: 1,
+			added: 2,
+			deleted: 1,
+		} as const;
+
+		store.beginRequest('request-1', 'edit it');
+		store.handleHostMessage({ type: 'workspaceChanges', requestId: 'request-1', changes });
+		store.handleHostMessage({ type: 'responseEnd', requestId: 'request-1' });
+		const completed = store.getMessage('request-1:assistant');
+		assert.ok(completed?.kind === 'assistant');
+		assert.strictEqual(completed.status, 'complete');
+		assert.deepStrictEqual(completed.changes, changes);
+
+		store.beginRequest('request-2', 'edit again');
+		store.handleHostMessage({ type: 'responseEnd', requestId: 'request-2' });
+		store.handleHostMessage({ type: 'workspaceChanges', requestId: 'request-2', changes: {
+			...changes,
+			seq: 15,
+			turn: 2,
+		} });
+		const late = store.getMessage('request-2:assistant');
+		assert.ok(late?.kind === 'assistant');
+		assert.strictEqual(late.changes?.seq, 15);
+		assert.strictEqual(completed.changes?.seq, 9);
+	});
+
 	test('deduplicates the bridge and audit approval cards and records the outcome', () => {
 		const store = new ConversationStore();
 		store.beginRequest('request-1', 'run it');

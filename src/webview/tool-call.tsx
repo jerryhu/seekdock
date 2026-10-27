@@ -19,7 +19,7 @@ import { useI18n } from './i18n-context.tsx';
 /** Collapsible card for one tool invocation and its result. */
 export function ToolCallView({ call }: { call: ToolCall }): JSX.Element {
 	const { t } = useI18n();
-	const [open, setOpen] = useState(call.status === 'error');
+	const [open, setOpen] = useState(false);
 	const parsed = parseArguments(call.arguments);
 	const kind = normalizedTool(call.name);
 	const label = toolLabel(kind, call.name, t);

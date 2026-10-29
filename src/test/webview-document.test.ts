@@ -29,9 +29,13 @@ suite('Webview document', () => {
 			bodyClass: 'settings-panel-body',
 		});
 
-		const expectedPolicy = "default-src 'none'; style-src vscode-resource:; script-src 'nonce-";
+		const expectedPolicy = "default-src 'none'; style-src vscode-resource:; img-src vscode-resource:; script-src 'nonce-";
 		assert.ok(chatHtml.includes(expectedPolicy));
 		assert.ok(settingsHtml.includes(expectedPolicy));
+		// Images stay limited to extension Webview resources; no remote or inline sources.
+		assert.ok(chatHtml.includes("img-src vscode-resource:;"));
+		assert.ok(!chatHtml.includes("img-src *"));
+		assert.ok(!chatHtml.includes('img-src data:'));
 		assert.ok(settingsHtml.includes('<body class="settings-panel-body">'));
 		assert.ok(settingsHtml.includes('settings-webview.js'));
 	});

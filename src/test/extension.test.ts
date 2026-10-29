@@ -8,7 +8,7 @@ import { resolveDshRuntime } from '../host/dsh-runtime.ts';
 const VIEW_ID = 'seekdock.chatView';
 const CONTAINER_COMMAND_ID = 'workbench.view.extension.seekdockChat';
 
-/** 轮询等待条件成立，最长等待 timeoutMs。 */
+/** Polls until the predicate holds, waiting at most timeoutMs. */
 async function waitFor(
 	predicate: () => Promise<boolean>,
 	timeoutMs = 10000,
@@ -30,7 +30,7 @@ interface Diagnostics {
 	openPath?: 'none' | 'focusView' | 'containerFallback';
 }
 
-/** 读取正在运行的扩展实例状态（测试内 import 的模块与宿主加载的实例不是同一个）。 */
+/** Reads the state of the running extension instance (the module imported here is not the instance loaded by the host). */
 async function readDiagnostics(): Promise<Diagnostics> {
 	try {
 		const result = await vscode.commands.executeCommand<Diagnostics>('seekdock._diagnostics');
@@ -48,53 +48,53 @@ suite('Extension Test Suite', () => {
 		assert.strictEqual(-1, [1, 2, 3].indexOf(0));
 	});
 
-	test('扩展可被激活', async () => {
-		// package.json 未声明 publisher，因此按包名动态查找，不硬编码扩展 ID。
+	test('extension can be activated', async () => {
+		// package.json declares no publisher, so look the extension up by package name instead of hardcoding an ID.
 		const extension = vscode.extensions.all.find(
 			item => item.packageJSON?.name === 'seekdock'
 		);
-		assert.ok(extension, '未找到 seekdock 扩展，确认已作为开发扩展加载');
+		assert.ok(extension, 'seekdock extension not found; make sure it is loaded as a development extension');
 		await extension.activate();
-		assert.ok(extension.isActive, '扩展激活失败');
+		assert.ok(extension.isActive, 'extension failed to activate');
 	});
 
-	test('右侧栏视图与容器命令均已注册', async () => {
+	test('sidebar view and container command are registered', async () => {
 		const commands = await vscode.commands.getCommands(true);
 
-		// 视图 ID 本身不是命令，但 VS Code 会为每个视图自动生成 `<viewId>.focus`。
+		// The view ID itself is not a command, but VS Code generates `<viewId>.focus` for every view.
 		assert.ok(
 			commands.includes(`${VIEW_ID}.focus`),
-			`未生成视图聚焦命令 ${VIEW_ID}.focus，检查 contributes.views 是否声明了该视图`
+			`view focus command ${VIEW_ID}.focus was not generated; check that contributes.views declares this view`
 		);
 		assert.ok(
 			commands.includes(CONTAINER_COMMAND_ID),
-			`容器打开命令 ${CONTAINER_COMMAND_ID} 未注册，检查 contributes.viewsContainers`
+			`container open command ${CONTAINER_COMMAND_ID} is not registered; check contributes.viewsContainers`
 		);
 		assert.ok(
 			commands.includes('seekdock.openSidebar'),
-			'打开右侧栏命令未注册'
+			'open-sidebar command is not registered'
 		);
 		assert.ok(
 			commands.includes('seekdock.newChat'),
-			'新建会话命令未注册'
+			'new-chat command is not registered'
 		);
 		assert.ok(
 			commands.includes('seekdock.openSettings'),
-			'打开设置页面命令未注册'
+			'open-settings command is not registered'
 		);
 	});
 
-	test('扩展安装图标与编辑器标题栏图标资源完整', async () => {
+	test('extension icon and editor title bar icon resources are complete', async () => {
 		const extension = vscode.extensions.all.find(
 			item => item.packageJSON?.name === 'seekdock'
 		);
-		assert.ok(extension, '未找到 seekdock 扩展');
+		assert.ok(extension, 'seekdock extension not found');
 
 		const extensionIcon = extension.packageJSON?.icon;
 		assert.strictEqual(
 			extensionIcon,
 			'resources/seekdock-icon.png',
-			'扩展安装图标未指向 resources/seekdock-icon.png',
+			'extension icon does not point to resources/seekdock-icon.png',
 		);
 
 		type MenuEntry = { command?: string };
@@ -103,11 +103,11 @@ suite('Extension Test Suite', () => {
 		const viewTitleEntries = menus['view/title'] ?? [];
 		assert.ok(
 			titleEntries.some(entry => entry.command === 'seekdock.openSidebar'),
-			'contributes.menus["editor/title"] 未声明 seekdock.openSidebar，标签栏不会出现入口图标'
+			'contributes.menus["editor/title"] does not declare seekdock.openSidebar, so no entry icon appears in the tab bar'
 		);
 		assert.ok(
 			!viewTitleEntries.some(entry => entry.command === 'seekdock.openSettings'),
-			'插件级视图标题栏仍声明了设置入口；设置应只由 Webview 顶部的图标打开'
+			'the extension-level view title bar still declares a settings entry; settings should only be opened from the Webview header icon'
 		);
 		const commands = (extension.packageJSON?.contributes?.commands ?? []) as Array<{
 			command?: string;
@@ -116,7 +116,7 @@ suite('Extension Test Suite', () => {
 		assert.deepStrictEqual(
 			commands.find(entry => entry.command === 'seekdock.openSettings')?.icon,
 			'$(settings-gear)',
-			'设置入口未使用 settings-gear 图标',
+			'settings entry does not use the settings-gear icon',
 		);
 
 		const iconPaths = [
@@ -129,12 +129,12 @@ suite('Extension Test Suite', () => {
 			const stat = await vscode.workspace.fs.stat(
 				vscode.Uri.joinPath(extension.extensionUri, iconPath)
 			);
-			assert.ok(stat.size > 0, `${iconPath} 缺失或为空`);
+			assert.ok(stat.size > 0, `${iconPath} is missing or empty`);
 		}
 	});
 
-	test('执行打开命令后右侧栏视图确实被创建', async () => {
-		// 打开前视图可能尚未实例化。
+	test('running the open command actually creates the sidebar view', async () => {
+		// The view may not be instantiated before it is opened.
 		await vscode.commands.executeCommand('seekdock.openSidebar');
 
 		const resolved = await waitFor(async () => {
@@ -144,19 +144,19 @@ suite('Extension Test Suite', () => {
 
 		assert.ok(
 			resolved,
-			'执行 seekdock.openSidebar 后 WebviewViewProvider 未被调用，右侧栏视图未真正打开'
+			'WebviewViewProvider was not called after running seekdock.openSidebar; the sidebar view did not actually open'
 		);
 
-		// 应走主路径（聚焦视图），而不是容器兜底路径。
+		// The primary path (focusing the view) should be used, not the container fallback.
 		const diagnostics = await readDiagnostics();
 		assert.strictEqual(
 			diagnostics.openPath,
 			'focusView',
-			`打开右侧栏走了非预期分支：${diagnostics.openPath}，说明 ${VIEW_ID}.focus 执行失败`
+			`opening the sidebar took an unexpected branch: ${diagnostics.openPath}, which means ${VIEW_ID}.focus failed`
 		);
 	});
 
-	test('设置命令创建独立设置面板', async () => {
+	test('settings command creates a standalone settings panel', async () => {
 		await vscode.commands.executeCommand('seekdock.openSettings');
 
 		const resolved = await waitFor(async () => {
@@ -164,14 +164,14 @@ suite('Extension Test Suite', () => {
 			return diagnostics.settingsPanelResolved === true;
 		});
 
-		assert.ok(resolved, '执行 seekdock.openSettings 后未创建独立设置面板');
+		assert.ok(resolved, 'no standalone settings panel was created after running seekdock.openSettings');
 	});
 
-	test('macOS arm64 runtime 已随扩展打包且可解析', async () => {
+	test('macOS arm64 runtime is bundled with the extension and resolvable', async () => {
 		const extension = vscode.extensions.all.find(
 			item => item.packageJSON?.name === 'seekdock'
 		);
-		assert.ok(extension, '未找到 seekdock 扩展');
+		assert.ok(extension, 'seekdock extension not found');
 
 		const runtime = resolveDshRuntime(extension.extensionUri.fsPath, 'darwin', 'arm64');
 		assert.strictEqual(runtime.target, 'macos-arm64');

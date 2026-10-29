@@ -266,6 +266,20 @@ suite('Conversation store', () => {
 	test('loads a persisted transcript as completed chat messages', () => {
 		const store = new ConversationStore();
 		store.beginRequest('request-1', 'old prompt');
+		const changes = {
+			sessionId: 'session-1',
+			seq: 9,
+			turn: 1,
+			files: [{
+				path: 'src/app.ts',
+				display: 'src/app.ts',
+				added: 2,
+				deleted: 1,
+			}],
+			total: 1,
+			added: 2,
+			deleted: 1,
+		} as const;
 
 		store.loadTranscript([{
 			kind: 'user',
@@ -281,6 +295,7 @@ suite('Conversation store', () => {
 				id: 'history-text-2',
 				text: 'world',
 			}],
+			changes,
 		}]);
 
 		assert.deepStrictEqual(store.getOrder(), ['history-user-1', 'history-assistant-2']);
@@ -289,6 +304,7 @@ suite('Conversation store', () => {
 		assert.ok(assistant?.kind === 'assistant');
 		assert.strictEqual(assistant.status, 'complete');
 		assert.strictEqual(assistant.requestId, 'history:history-assistant-2');
+		assert.deepStrictEqual(assistant.changes, changes);
 		assert.deepStrictEqual(assistant.entries, [{
 			kind: 'text',
 			id: 'history-text-2',

@@ -5,7 +5,7 @@ export interface PlaceholderIconProps {
 }
 
 /**
- * 首页空状态的占位插画
+ * Placeholder illustration for the empty conversation state.
  */
 export function PlaceholderIcon({ className }: PlaceholderIconProps): JSX.Element {
 	return (

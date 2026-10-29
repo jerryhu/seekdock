@@ -10,11 +10,28 @@ import {
 	type SessionHeader,
 } from '@deepseek-ai/dsh-session';
 import { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm';
+import type {} from '@deepseek-ai/dsh-workspace-changes';
 import {
 	removeSessionArtifacts,
 	summarizeSession,
 	transcriptFromSessionEvents,
 } from '../host/session-history.ts';
+import type { WorkspaceChangeSet } from '../shared/workspace-changes.ts';
+
+const storedChanges: WorkspaceChangeSet = {
+	sessionId: 'seekdock-session',
+	seq: 3,
+	turn: 1,
+	files: [{
+		path: 'src/app.ts',
+		display: 'src/app.ts',
+		added: 1,
+		deleted: 1,
+	}],
+	total: 1,
+	added: 1,
+	deleted: 1,
+};
 
 suite('Session history', () => {
 	test('replays human prompts, assistant content, and tool results', () => {
@@ -142,6 +159,74 @@ suite('Session history', () => {
 		}]);
 	});
 
+	test('attaches a stored changed-file card to the turn that recorded it', () => {
+		const events: SessionEvent[] = [
+			{ type: 'turn/start', seq: SessionSeq(0), time: 0, data: { turn: 1 } },
+			userMessage(1, 'Change the value'),
+			assistantText(2, 2, 'Done.'),
+			{
+				type: 'workspace/changes',
+				seq: SessionSeq(3),
+				time: 3,
+				data: { turn: 1 },
+			},
+			{
+				type: 'turn/end',
+				seq: SessionSeq(4),
+				time: 4,
+				data: { turn: 1, reason: { kind: 'completed' } },
+			},
+		];
+
+		const messages = transcriptFromSessionEvents(events, new Map([[3, storedChanges]]));
+		assert.ok(messages[1]?.kind === 'assistant');
+		assert.deepStrictEqual(messages[1].changes, storedChanges);
+		assert.strictEqual(messages[1].durationMs, 4);
+	});
+
+	test('keeps a changed-file card recorded after the turn ended', () => {
+		const events: SessionEvent[] = [
+			{ type: 'turn/start', seq: SessionSeq(0), time: 0, data: { turn: 1 } },
+			userMessage(1, 'Change the value'),
+			assistantText(2, 2, 'Done.'),
+			{
+				type: 'turn/end',
+				seq: SessionSeq(3),
+				time: 3,
+				data: { turn: 1, reason: { kind: 'completed' } },
+			},
+			{
+				type: 'workspace/changes',
+				seq: SessionSeq(4),
+				time: 4,
+				data: { turn: 1 },
+			},
+		];
+
+		const changes: WorkspaceChangeSet = { ...storedChanges, seq: 4 };
+		const messages = transcriptFromSessionEvents(events, new Map([[4, changes]]));
+		assert.ok(messages[1]?.kind === 'assistant');
+		assert.deepStrictEqual(messages[1].changes, changes);
+	});
+
+	test('omits cards whose stored summary is unavailable', () => {
+		const events: SessionEvent[] = [
+			{ type: 'turn/start', seq: SessionSeq(0), time: 0, data: { turn: 1 } },
+			userMessage(1, 'Change the value'),
+			assistantText(2, 2, 'Done.'),
+			{
+				type: 'workspace/changes',
+				seq: SessionSeq(3),
+				time: 3,
+				data: { turn: 1 },
+			},
+		];
+
+		const messages = transcriptFromSessionEvents(events);
+		assert.ok(messages[1]?.kind === 'assistant');
+		assert.strictEqual(messages[1].changes, undefined);
+	});
+
 	test('summarizes persisted metadata and counts only human messages', () => {
 		const header: SessionHeader = {
 			version: SESSION_FORMAT_VERSION,
@@ -226,12 +311,35 @@ suite('Session history', () => {
 	});
 });
 
+function assistantText(seq: number, step: number, text: string): SessionEvent {
+	return {
+		type: 'assistant/message',
+		seq: SessionSeq(seq),
+		time: seq,
+		data: {
+			turn: 1,
+			step,
+			message: {
+				id: MessageId(`assistant-${seq}`),
+				role: 'assistant',
+				source: {
+					kind: 'model',
+					provider: 'deepseek-official',
+					model: 'deepseek-v4-flash',
+				},
+				content: [{ type: 'text', text }],
+			},
+			stream: [],
+		},
+		surfaceOp: 'append',
+	};
+}
+
 function userMessage(
 	seq: number,
 	text: string,
 	source: 'user' | 'system-prompt' = 'user',
-): SessionEvent {
-	return {
+): SessionEvent {	return {
 		type: 'user/message',
 		seq: SessionSeq(seq),
 		time: seq,

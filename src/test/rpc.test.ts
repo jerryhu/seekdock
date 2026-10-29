@@ -264,6 +264,20 @@ suite('RPC contract', () => {
 					id: 'text-1',
 					text: 'hi',
 				}],
+				changes: {
+					sessionId: 'seekdock-session',
+					seq: 7,
+					turn: 1,
+					files: [{
+						path: 'src/app.ts',
+						display: 'src/app.ts',
+						added: 1,
+						deleted: 1,
+					}],
+					total: 1,
+					added: 1,
+					deleted: 1,
+				},
 			}],
 		}));
 			assert.ok(!isHostToWebviewMessage({

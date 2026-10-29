@@ -12,6 +12,8 @@ import { createServer } from 'node:net';
 export const name = 'seekdock-session-title-bridge';
 export const inject = ['sessions', 'sessionTitle'];
 
+const TITLE_WAIT_TIMEOUT_MS = 65_000;
+
 export function apply(ctx) {
 	const socketPath = process.env.SEEKDOCK_SESSION_TITLE_SOCKET;
 	if (socketPath === undefined || socketPath.length === 0) {
@@ -32,7 +34,10 @@ export function apply(ctx) {
 			void (async () => {
 				let response;
 				try {
-					response = await renameSession(ctx, JSON.parse(input));
+					const request = JSON.parse(input);
+					response = request?.action === 'wait'
+						? await waitForSessionTitle(ctx, request)
+						: await renameSession(ctx, request);
 				} catch (error) {
 					response = { ok: false, message: errorMessage(error) };
 				}
@@ -62,6 +67,55 @@ export function apply(ctx) {
 			});
 		});
 	})(), 'seekdock.session-title.listen');
+}
+
+async function waitForSessionTitle(ctx, request) {
+	if (typeof request?.sessionId !== 'string' || request.sessionId.length === 0) {
+		return { ok: false, code: 'session-required', message: 'A session id is required.' };
+	}
+	const session = ctx.sessions.get(request.sessionId);
+	if (session === undefined) {
+		return {
+			ok: false,
+			code: 'not-live',
+			message: `SDK session is not live: ${request.sessionId}`,
+		};
+	}
+
+	const events = session.snapshotEvents();
+	const titleRequest = events.findLast(event => event.type === 'session/title-llm-request');
+	const latestTitle = events.findLast(event => event.type === 'session/title');
+	if (titleRequest !== undefined && (latestTitle === undefined || latestTitle.seq < titleRequest.seq)) {
+		await waitForNextTitle(ctx, session, titleRequest.seq);
+	}
+	await ctx.sessions.flush(session);
+	const title = ctx.sessionTitle.get(session);
+	return {
+		ok: true,
+		...(title === undefined ? {} : { title: title.title, source: title.source.kind }),
+	};
+}
+
+function waitForNextTitle(ctx, session, requestSeq) {
+	return new Promise(resolve => {
+		let settled = false;
+		let dispose = () => { };
+		const finish = () => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			clearTimeout(timer);
+			dispose();
+			resolve();
+		};
+		const timer = setTimeout(finish, TITLE_WAIT_TIMEOUT_MS);
+		dispose = ctx.on('session/event', (observed, event) => {
+			if (observed.id === session.id && event.type === 'session/title' && event.seq > requestSeq) {
+				finish();
+			}
+		});
+	});
 }
 
 async function renameSession(ctx, request) {

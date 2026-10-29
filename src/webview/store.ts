@@ -204,6 +204,7 @@ export class ConversationStore {
 					status: 'complete',
 					createdAt: message.createdAt,
 					...(message.durationMs === undefined ? {} : { durationMs: message.durationMs }),
+					...(message.changes === undefined ? {} : { changes: message.changes }),
 				};
 			this.messages.set(message.id, chatMessage);
 			order.push(message.id);

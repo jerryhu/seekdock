@@ -8,9 +8,9 @@ import {
 	ChevronUp,
 	CircleAlert,
 	Copy,
-	LoaderCircle,
 	Sparkles,
 } from 'lucide-preact';
+import { AssistantRunningStatus } from './assistant-running.tsx';
 import { Markdown } from './markdown.tsx';
 import {
 	type AssistantLive,
@@ -22,14 +22,16 @@ import {
 import { ApprovalView, ToolCallView } from './tool-call.tsx';
 import { copyText } from './copy.ts';
 import { formatMessageClock } from './message-clock.ts';
+import { processRowsVisible } from './process-disclosure.ts';
 import { reasoningSummary } from './reasoning-summary.ts';
 import type { Approval, ApprovalAnswer } from '../shared/rpc.ts';
 import type {
 	WorkspaceChangeSet,
 	WorkspaceFileDiff,
 } from '../shared/workspace-changes.ts';
-import { intlLocale, type Translator } from '../shared/i18n/index.ts';
+import { intlLocale } from '../shared/i18n/index.ts';
 import { useI18n } from './i18n-context.tsx';
+import { formatDuration } from './run-duration.ts';
 import { WorkspaceChangesView } from './workspace-changes.tsx';
 
 interface MessageListProps {
@@ -233,10 +235,11 @@ function AssistantMessageView({
 		.join('');
 	const streaming = message.status === 'streaming';
 	const cancelled = message.status === 'cancelled';
-	const phase = activityLabel(message.live, t);
-	const [processOpen, setProcessOpen] = useState(true);
-	const durationMs = useElapsedDuration(message);
-	const duration = formatDuration(durationMs, t);
+	// A live answer always shows its process rows; once it settles they fold
+	// behind the duration toggle, so a completed or reopened answer stays concise.
+	const [processExpanded, setProcessExpanded] = useState(false);
+	const processOpen = processRowsVisible(streaming, processExpanded);
+	const duration = formatDuration(message.durationMs, t);
 	const hasProcess = message.entries.some(
 		entry => entry.kind === 'reasoning' || entry.kind === 'tool',
 	) || message.live?.blocks.some(block => block.kind === 'reasoning') === true
@@ -244,45 +247,41 @@ function AssistantMessageView({
 
 	return (
 		<article className="message assistant-message" aria-busy={streaming}>
-			<header className="assistant-header">
-				<button
-					type="button"
-					className="assistant-duration"
-					aria-expanded={hasProcess ? processOpen : undefined}
-					aria-label={hasProcess
-						? processOpen ? t('collapseProcess') : t('expandProcess')
-						: undefined}
-					disabled={!hasProcess}
-					data-tooltip={hasProcess
-						? processOpen ? t('collapseProcess') : t('expandProcess')
-						: undefined}
-					data-tooltip-align="start"
-					onClick={() => setProcessOpen(value => !value)}
-				>
-					<span>
-						{streaming
-							? t('workingFor', { duration })
-							: t('workedFor', { duration })}
-					</span>
-					{hasProcess
-						? processOpen
-							? <ChevronDown size={13} aria-hidden="true" />
-							: <ChevronRight size={13} aria-hidden="true" />
-						: null}
-				</button>
-				{streaming || cancelled
-					? (
-						<span className="stream-state" role="status" aria-live="polite">
-							{streaming ? <span className="stream-dot" /> : null}
-							{streaming ? phase : t('stopped')}
-						</span>
-					)
-					: null}
-			</header>
+			{streaming
+				? null
+				: (
+					<header className="assistant-header">
+						<button
+							type="button"
+							className="assistant-duration"
+							aria-expanded={hasProcess ? processOpen : undefined}
+							aria-label={hasProcess
+								? processOpen ? t('collapseProcess') : t('expandProcess')
+								: undefined}
+							disabled={!hasProcess}
+							data-tooltip={hasProcess
+								? processOpen ? t('collapseProcess') : t('expandProcess')
+								: undefined}
+							data-tooltip-align="start"
+							onClick={() => setProcessExpanded(value => !value)}
+						>
+							<span>{t('workedFor', { duration })}</span>
+							{hasProcess
+								? processOpen
+									? <ChevronDown size={13} aria-hidden="true" />
+									: <ChevronRight size={13} aria-hidden="true" />
+								: null}
+						</button>
+						{cancelled
+							? (
+								<span className="stream-state" role="status" aria-live="polite">
+									{t('stopped')}
+								</span>
+							)
+							: null}
+					</header>
+				)}
 			<div className="assistant-body">
-				{message.entries.length === 0 && message.live === undefined && streaming
-					? <ThinkingIndicator />
-					: null}
 				{message.entries.map((entry, index) => {
 					switch (entry.kind) {
 						case 'text':
@@ -338,6 +337,7 @@ function AssistantMessageView({
 					)
 					: null}
 			</div>
+			{streaming ? <AssistantRunningStatus message={message} /> : null}
 			{!streaming
 				&& (message.status === 'complete' || message.status === 'cancelled')
 				&& message.changes !== undefined
@@ -371,8 +371,6 @@ function LiveAssistantView({
 	processOpen: boolean;
 	onOpenLink: (url: string) => void;
 }): JSX.Element {
-	const { t } = useI18n();
-	const hasText = live.blocks.some(block => block.text.trim().length > 0);
 	return (
 		<>
 			{live.blocks.map((block, index) => {
@@ -395,19 +393,6 @@ function LiveAssistantView({
 					</div>
 				);
 			})}
-			{live.phase === 'tool'
-				? (
-					<div className="live-feedback" role="status">
-						<LoaderCircle size={13} className="spin" />
-						<span>
-							{live.toolName === undefined
-								? t('preparingToolCall')
-								: t('preparingToolNamed', { name: live.toolName })}
-						</span>
-					</div>
-				)
-				: null}
-			{!hasText && live.phase !== 'tool' ? <ThinkingIndicator /> : null}
 		</>
 	);
 }
@@ -470,40 +455,6 @@ function ReasoningView({
 				: null}
 		</section>
 	);
-}
-
-function useElapsedDuration(message: AssistantMessage): number | undefined {
-	const [now, setNow] = useState(() => Date.now());
-	const streaming = message.status === 'streaming';
-	useEffect(() => {
-		if (!streaming) {
-			return;
-		}
-		setNow(Date.now());
-		const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-		return () => window.clearInterval(timer);
-	}, [message.createdAt, streaming]);
-	if (message.durationMs !== undefined) {
-		return message.durationMs;
-	}
-	return streaming ? Math.max(0, now - message.createdAt) : undefined;
-}
-
-function formatDuration(durationMs: number | undefined, t: Translator): string {
-	if (durationMs === undefined) {
-		return '--';
-	}
-	const totalSeconds = Math.floor(durationMs / 1_000);
-	const hours = Math.floor(totalSeconds / 3_600);
-	const minutes = Math.floor((totalSeconds % 3_600) / 60);
-	const seconds = totalSeconds % 60;
-	if (hours > 0) {
-		return t('durationHours', { hours, minutes, seconds });
-	}
-	if (minutes > 0) {
-		return t('durationMinutes', { minutes, seconds });
-	}
-	return t('durationSeconds', { seconds });
 }
 
 function MessageTimestamp({ createdAt }: { createdAt: number }): JSX.Element {
@@ -625,30 +576,6 @@ function selectedTextWithin(element: Element): string | undefined {
 function isEditableTarget(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement
 		&& (target.isContentEditable || target.matches('input, textarea, select'));
-}
-
-function activityLabel(live: AssistantLive | undefined, t: Translator): string {
-	switch (live?.phase) {
-		case 'thinking':
-			return t('thinking');
-		case 'writing':
-			return t('generating');
-		case 'tool':
-			return t('callingTool');
-		default:
-			return t('preparing');
-	}
-}
-
-function ThinkingIndicator(): JSX.Element {
-	const { t } = useI18n();
-	return (
-		<div className="thinking" aria-label={t('thinkingAria')}>
-			<span />
-			<span />
-			<span />
-		</div>
-	);
 }
 
 function useOrder(store: ConversationStore): readonly MessageId[] {

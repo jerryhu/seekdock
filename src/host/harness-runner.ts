@@ -298,6 +298,24 @@ export class HarnessRunner {
 		return response.title;
 	}
 
+	/**
+	 * Wait for an automatic title provider request already in flight, then
+	 * drain its persistence barrier so the next history projection sees it.
+	 *
+	 * @param sessionId - live session whose automatic title may still be settling.
+	 * @returns the accepted title, or undefined when the session has none.
+	 */
+	async waitForSessionTitle(sessionId: string): Promise<string | undefined> {
+		const response = await this.sessionTitleRequest(
+			{ action: 'wait', sessionId },
+			70_000,
+		);
+		if (!response.ok) {
+			throw new Error(response.message ?? 'DeepSeek Harness failed to wait for the session title.');
+		}
+		return response.title;
+	}
+
 	/** @returns DSH's process-level permission catalog. */
 	async permissionCatalog(): Promise<PermissionCatalog> {
 		const response = await this.permissionRequest({ action: 'catalog' });
@@ -495,6 +513,7 @@ export class HarnessRunner {
 
 	private async sessionTitleRequest(
 		payload: Record<string, unknown>,
+		timeoutMs?: number,
 	): Promise<SessionTitleBridgeResponse> {
 		return this.requestBridge({
 			socketPath: this.sessionTitleSocketPath,
@@ -502,6 +521,7 @@ export class HarnessRunner {
 			label: 'session-title',
 			parse: parseSessionTitleResponse,
 			invalidResponseMessage: 'DeepSeek Harness returned an invalid session-title response.',
+			timeoutMs,
 		});
 	}
 

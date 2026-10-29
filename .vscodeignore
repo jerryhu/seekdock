@@ -21,6 +21,8 @@ PUBLISH_NOTE.md
 esbuild.js
 package-lock.json
 README.md
+README.zh-Hans.md
+MARKETPLACE_README.md
 **/tsconfig.json
 **/eslint.config.mjs
 **/*.map
@@ -29,4 +31,15 @@ README.md
 
 # Runtime archives and staging directories are build inputs, not VSIX contents.
 resources/runtime/**/*.gz
+resources/runtime/**/*.whl
 resources/runtime/.prepare-runtime-*
+
+# Local environment files, caches, and tool-managed context must never ship.
+.env
+.env.*
+.clean/**
+*.tsbuildinfo
+.eslintcache
+coverage/**
+*.log
+*.pid

@@ -20,8 +20,10 @@ interface WebviewDocumentOptions {
  * Build the shared HTML shell for all SeekDock Webviews.
  *
  * Keeping the CSP in one place ensures new panels cannot accidentally relax
- * script, style, or font sources. A fresh nonce is generated per render so a
- * script from an earlier document cannot satisfy the current policy.
+ * script, style, or font sources. Images are limited to the extension's own
+ * Webview resources so the running-status animation can load its mask. A fresh
+ * nonce is generated per render so a script from an earlier document cannot
+ * satisfy the current policy.
  */
 export function createWebviewDocument(options: WebviewDocumentOptions): string {
 	const nonce = createWebviewNonce();
@@ -38,7 +40,7 @@ export function createWebviewDocument(options: WebviewDocumentOptions): string {
 <html lang="${intlLocale(options.language)}">
 <head>
 	<meta charset="UTF-8">
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${options.webview.cspSource}; script-src 'nonce-${nonce}'; font-src ${options.webview.cspSource};">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${options.webview.cspSource}; img-src ${options.webview.cspSource}; script-src 'nonce-${nonce}'; font-src ${options.webview.cspSource};">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<link href="${styleUri}" rel="stylesheet">
 	<title>${options.title}</title>

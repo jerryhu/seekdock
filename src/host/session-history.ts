@@ -12,12 +12,15 @@ import type {
 } from '@deepseek-ai/dsh-session-persistence';
 import { apply as applyJsonlPersistence } from '@deepseek-ai/dsh-session-persistence-jsonl';
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title';
+// Loads the `workspace/changes` event augmentation this projection switches on.
+import type {} from '@deepseek-ai/dsh-workspace-changes';
 import type {
 	SessionSummary,
 	ToolCall,
 	TranscriptEntry,
 	TranscriptMessage,
 } from '../shared/rpc.ts';
+import type { WorkspaceChangeSet } from '../shared/workspace-changes.ts';
 import { LocalizedError } from '../shared/i18n/index.ts';
 
 /** Session list plus the complete replayable transcript requested by the Webview. */
@@ -67,9 +70,13 @@ export class SessionHistoryStore {
 	 * Read and replay one stored session without making it live.
 	 *
 	 * @param id - DSH session id selected from the history list.
+	 * @param changesBySeq - SeekDock's stored changed-file cards keyed by event sequence.
 	 * @returns a title and the messages rendered in the chat transcript.
 	 */
-	async load(id: string): Promise<LoadedSession> {
+	async load(
+		id: string,
+		changesBySeq: ReadonlyMap<number, WorkspaceChangeSet> = new Map(),
+	): Promise<LoadedSession> {
 		const persistence = await this.ensurePersistence();
 		const handle = await persistence.open(SessionId(id), 'read');
 		try {
@@ -81,7 +88,7 @@ export class SessionHistoryStore {
 			return {
 				sessionId: id,
 				title,
-				messages: transcriptFromSessionEvents(snapshot.events),
+				messages: transcriptFromSessionEvents(snapshot.events, changesBySeq),
 			};
 		} finally {
 			await handle.close();
@@ -202,7 +209,12 @@ async function findSessionDirectory(
 	return undefined;
 }
 
-function assertSafeSessionId(id: string): void {
+/**
+ * Reject session ids that could escape the directory holding extension-owned artifacts.
+ *
+ * @param id - session identity taken from a Webview request or DSH snapshot.
+ */
+export function assertSafeSessionId(id: string): void {
 	if (id.length === 0
 		|| id === '.'
 		|| id === '..'
@@ -227,16 +239,19 @@ function isSessionHistoryPersistence(value: unknown): value is SessionHistoryPer
  * of the conversation history.
  *
  * @param events - complete persisted session log.
+ * @param changesBySeq - changed-file cards SeekDock stored for this session.
  * @returns historical user and assistant messages in log order.
  */
 export function transcriptFromSessionEvents(
 	events: readonly SessionEvent[],
+	changesBySeq: ReadonlyMap<number, WorkspaceChangeSet> = new Map(),
 ): readonly TranscriptMessage[] {
 	const messages: TranscriptMessage[] = [];
 	let assistant: {
 		id: string;
 		createdAt: number;
 		entries: TranscriptEntry[];
+		changes?: WorkspaceChangeSet;
 	} | undefined;
 	let turnStartedAt: number | undefined;
 
@@ -256,6 +271,7 @@ export function transcriptFromSessionEvents(
 				entries: assistant.entries,
 				createdAt: assistant.createdAt,
 				...(durationMs === undefined ? {} : { durationMs }),
+				...(assistant.changes === undefined ? {} : { changes: assistant.changes }),
 			});
 		}
 		assistant = undefined;
@@ -355,6 +371,23 @@ export function transcriptFromSessionEvents(
 							} satisfies ToolCall,
 						};
 					}
+				}
+				break;
+			}
+			case 'workspace/changes': {
+				const changes = changesBySeq.get(event.seq);
+				if (changes === undefined) {
+					break;
+				}
+				if (assistant !== undefined) {
+					assistant.changes = changes;
+					break;
+				}
+				// An interrupted turn may record its summary after `turn/end`
+				// flushed the assistant message; keep the card on that message.
+				const last = messages.at(-1);
+				if (last?.kind === 'assistant') {
+					messages[messages.length - 1] = { ...last, changes };
 				}
 				break;
 			}

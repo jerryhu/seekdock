@@ -116,7 +116,6 @@ export function SessionHistoryPage({
 					<ArrowLeft size={16} />
 				</button>
 				<div className="page-heading">
-					<History size={16} />
 					<h1>{t('history')}</h1>
 					<span className="page-count">{sessions.length}</span>
 				</div>

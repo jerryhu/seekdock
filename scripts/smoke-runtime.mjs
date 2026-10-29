@@ -42,6 +42,25 @@ const server = createServer((request, response) => {
 		requests.push(payload);
 		response.writeHead(200, { 'content-type': 'text/event-stream' });
 		const serialized = JSON.stringify(payload);
+		if (JSON.stringify(payload.messages).includes('Generate the session title from this JSON array')
+			&& payload.tools === undefined) {
+			for (const event of [
+				{ type: 'message_start', message: { usage: { input_tokens: 3 } } },
+				{ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+				{
+					type: 'content_block_delta',
+					index: 0,
+					delta: { type: 'text_delta', text: 'Generated session title' },
+				},
+				{ type: 'content_block_stop', index: 0 },
+				{ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
+				{ type: 'message_stop' },
+			]) {
+				response.write(`data: ${JSON.stringify(event)}\n\n`);
+			}
+			response.end();
+			return;
+		}
 		if (serialized.includes('REVIEW_POLICY')) {
 			for (const event of [
 				{ type: 'message_start', message: { usage: { input_tokens: 3 } } },
@@ -333,6 +352,16 @@ try {
 				+ `recent events: ${JSON.stringify(diagnostics)}`,
 			);
 	}
+	const generatedTitle = await withTimeout(controlRequest(sessionTitleSocketPath, {
+		action: 'wait',
+		sessionId,
+	}), 70_000, 'the generated session title');
+	if (generatedTitle?.ok !== true
+		|| generatedTitle.source !== 'provider'
+		|| generatedTitle.title !== 'Generated session title') {
+		throw new Error(`The packaged runtime did not generate a first-prompt session title: ${JSON.stringify(generatedTitle)}`);
+	}
+	console.log('Session title smoke: first-prompt model title generated.');
 	const liveFrames = notifications
 		.filter(notification => notification.method === 'seekdock/assistant-stream')
 		.map(notification => notification.params.frame);

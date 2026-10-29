@@ -116,6 +116,8 @@ export type TranscriptMessage =
 		entries: readonly TranscriptEntry[];
 		createdAt: number;
 		durationMs?: number;
+		/** Changed-file card persisted by SeekDock for this turn. */
+		changes?: WorkspaceChangeSet;
 	};
 
 /** Messages posted by the chat Webview to the extension host. */
@@ -542,7 +544,8 @@ function isTranscriptMessage(value: unknown): value is TranscriptMessage {
 	return value.kind === 'assistant'
 		&& Array.isArray(value.entries)
 		&& value.entries.every(isTranscriptEntry)
-		&& (value.durationMs === undefined || isNonNegativeInteger(value.durationMs));
+		&& (value.durationMs === undefined || isNonNegativeInteger(value.durationMs))
+		&& (value.changes === undefined || isWorkspaceChangeSet(value.changes));
 }
 
 function isTranscriptEntry(value: unknown): value is TranscriptEntry {

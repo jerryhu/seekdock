@@ -28,6 +28,7 @@ import {
 import { StreamDeltaBatcher } from './host/stream-delta-batcher.ts';
 import { SystemPromptStore } from './host/system-prompt-store.ts';
 import { createWebviewDocument } from './host/webview-document.ts';
+import { WorkspaceChangeStore } from './host/workspace-change-store.ts';
 import { WorkspaceDiffDocuments } from './host/workspace-diff-documents.ts';
 import {
 	detectLanguage,
@@ -72,10 +73,10 @@ import {
 } from './shared/rpc.ts';
 import type { WorkspaceFileDiff } from './shared/workspace-changes.ts';
 
-/** package.json 中 contributes.views 声明的视图 ID。 */
+/** View id declared under contributes.views in package.json. */
 const VIEW_ID = 'seekdock.chatView';
 
-/** 视图容器的打开命令，由 VS Code 依据 contributes.viewsContainers 自动注册。 */
+/** Command opening the view container; VS Code registers it from contributes.viewsContainers. */
 const CONTAINER_COMMAND_ID = 'workbench.view.extension.seekdockChat';
 
 /** SecretStorage key used for the DeepSeek credential. */
@@ -94,10 +95,11 @@ const LANGUAGE_STATE_KEY = 'seekdock.language';
 const STATE_REFRESH_DEBOUNCE_MS = 75;
 
 /**
- * 右侧栏（辅助侧边栏 / Secondary Side Bar）聊天视图的 Webview 提供者。
+ * Webview provider for the chat view in the Secondary Side Bar.
  *
- * 视图本身由 package.json 声明在 secondarySidebar 容器中，因此无需运行时
- * 手动搬移；这里只负责填充 Webview 内容并与之通信。
+ * The view is declared under the secondarySidebar container in package.json, so
+ * nothing has to be moved at runtime; this class only fills the Webview and
+ * talks to it.
  */
 class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable, SettingsHost {
 	private view: vscode.WebviewView | undefined;
@@ -120,6 +122,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	private readonly promptStore: SystemPromptStore;
 	private readonly mcpStore: McpServerStore;
 	private readonly workspaceDiffs = new WorkspaceDiffDocuments();
+	private readonly workspaceChanges: WorkspaceChangeStore;
 	private approvalBroker: ApprovalBroker | undefined;
 	private readonly pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>();
 	private readonly earlyApprovalDecisions = new Map<
@@ -162,9 +165,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			storageUri.fsPath,
 			() => this.workspaceRoot(),
 		);
+		this.workspaceChanges = new WorkspaceChangeStore(
+			vscode.Uri.joinPath(storageUri, 'workspace-change-history').fsPath,
+		);
 	}
 
-	/** Webview 是否已被 VS Code 创建，用于判断视图是否真正打开过。 */
+	/** Whether VS Code has created the Webview, i.e. the view has actually been opened. */
 	get resolved(): boolean {
 		return this.view !== undefined;
 	}
@@ -180,7 +186,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 
 		webviewView.webview.options = {
 			enableScripts: true,
-			// 只允许加载插件自身目录下的资源，避免 Webview 读取任意本地文件。
+			// Restrict loads to the extension's own directory so the Webview cannot read arbitrary local files.
 			localResourceRoots: [this.extensionUri]
 		};
 
@@ -209,7 +215,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			this.cancelPendingApprovals('cancelled');
 		});
 
-		// Webview 可能是按需创建的，补发在此之前排队的「新建会话」请求。
+		// The Webview may be created on demand, so replay a new-chat request that arrived earlier.
 		if (this.pendingNewChat) {
 			this.pendingNewChat = false;
 			void webviewView.webview.postMessage({ type: 'newChat' });
@@ -309,6 +315,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	/** Stop the runtime and wait for it to exit. */
 	shutdown(): Promise<void> {
 		this.shutdownPromise ??= (async () => {
+			await this.workspaceChanges.dispose();
 			this.cancelPendingApprovals('cancelled');
 			if (this.permissionRefreshTimer !== undefined) {
 				clearTimeout(this.permissionRefreshTimer);
@@ -435,7 +442,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			if (this.runner?.busy) {
 				throw new LocalizedError('hostBusySwitchSession');
 			}
-			const loaded = await this.getHistoryStore().load(message.sessionId);
+			const changesBySeq = await this.workspaceChanges.readSession(message.sessionId);
+			const loaded = await this.getHistoryStore().load(message.sessionId, changesBySeq);
 			this.cancelPendingApprovals('cancelled');
 			this.activeSessionId = loaded.sessionId;
 			this.resumeActiveSession = true;
@@ -474,6 +482,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 				this.resumeActiveSession = true;
 			}
 			await this.getHistoryStore().delete(message.sessionId);
+			try {
+				await this.workspaceChanges.removeSession(message.sessionId);
+			} catch (error) {
+				// The session is gone either way; a stale change record must not block deletion.
+				console.warn('SeekDock: failed to remove cached workspace changes', error);
+			}
 			if (wasActive) {
 				this.resetActiveSessionState();
 			}
@@ -658,6 +672,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			}
 			const result = await runTask;
 			this.resumeActiveSession = false;
+			this.refreshHistoryAfterTitle(runner, sessionId);
 			await eventChain;
 			await batcher.close();
 			await this.postMessage({
@@ -698,6 +713,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			await this.postSettingsState();
 			await this.postSessionHistory();
 		}
+	}
+
+	private refreshHistoryAfterTitle(runner: HarnessRunner, sessionId: string): void {
+		void runner.waitForSessionTitle(sessionId)
+			.then(() => this.postSessionHistory())
+			.catch(error => console.warn('SeekDock: failed to refresh the generated session title', error));
 	}
 
 	/**
@@ -1457,17 +1478,22 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 				break;
 			case 'workspaceChanges':
 				if (this.activeSessionId !== undefined && this.runner !== undefined) {
+					const sessionId = this.activeSessionId;
+					const runner = this.runner;
 					try {
-						const changes = await this.runner.workspaceChanges(
-							this.activeSessionId,
-							event.seq,
-						);
+						const changes = await runner.workspaceChanges(sessionId, event.seq);
 						if (changes !== undefined && changes.files.length > 0) {
 							await this.postMessage({
 								type: 'workspaceChanges',
 								requestId,
 								changes,
 							});
+							// DSH drops the summary with the live Session, so keep the
+							// card and its comparisons for the reopened conversation.
+							await this.workspaceChanges.record(
+								changes,
+								index => runner.workspaceFileDiff(sessionId, event.seq, index),
+							);
 						}
 					} catch (error) {
 						console.error('SeekDock: failed to read workspace changes', error);
@@ -1540,10 +1566,46 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			{ type: 'requestWorkspaceFileDiff' | 'openWorkspaceFileDiff' }
 		>,
 	): Promise<WorkspaceFileDiff | undefined> {
-		if (message.sessionId !== this.activeSessionId || this.runner === undefined) {
+		if (message.sessionId !== this.activeSessionId) {
 			return undefined;
 		}
-		return this.runner.workspaceFileDiff(message.sessionId, message.seq, message.index);
+		let liveError: unknown;
+		if (this.runner !== undefined) {
+			try {
+				const diff = await this.runner.workspaceFileDiff(
+					message.sessionId,
+					message.seq,
+					message.index,
+				);
+				if (diff !== undefined) {
+					// A reopened conversation may outlive this Runtime Session, so
+					// every comparison the user sees is kept for replay.
+					void this.workspaceChanges.saveDiff(
+						message.sessionId,
+						message.seq,
+						message.index,
+						diff,
+					).catch((error: unknown) => {
+						console.warn('SeekDock: failed to cache a workspace file diff', error);
+					});
+					return diff;
+				}
+			} catch (error) {
+				liveError = error;
+			}
+		}
+		const stored = await this.workspaceChanges.readDiff(
+			message.sessionId,
+			message.seq,
+			message.index,
+		);
+		if (stored !== undefined) {
+			return stored;
+		}
+		if (liveError !== undefined) {
+			throw liveError;
+		}
+		return undefined;
 	}
 
 	private async openExternal(
@@ -1977,7 +2039,7 @@ function readDisabledSkillNames(globalState: vscode.Memento): readonly string[] 
 		: [];
 }
 
-/** 兜底路径：聚焦视图失败时改为打开视图容器本身。 */
+/** Fallback path: open the view container itself when focusing the view fails. */
 async function openContainerFallback(): Promise<void> {
 	try {
 		await vscode.commands.executeCommand(CONTAINER_COMMAND_ID);
@@ -2015,20 +2077,20 @@ export function activate(context: vscode.ExtensionContext) {
 		provider,
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, {
 			webviewOptions: {
-					// 聊天 DOM 包含流式内容与滚动位置，切回时应原样恢复而非重建。
+					// The chat DOM carries streaming content and scroll position, so restore it instead of rebuilding.
 				retainContextWhenHidden: true,
 			},
 		})
 	);
 
-	// 打开右侧栏：聚焦视图即可，VS Code 会自动展开当前隐藏的辅助侧边栏。
+	// Opening the side bar only takes focusing the view; VS Code reveals a hidden auxiliary bar itself.
 	context.subscriptions.push(vscode.commands.registerCommand('seekdock.openSidebar', async () => {
 		try {
 			await vscode.commands.executeCommand(`${VIEW_ID}.focus`);
 			provider.focusInput();
 			openPath = 'focusView';
 		} catch (error) {
-			console.error('SeekDock: 聚焦聊天视图失败，改用容器命令兜底', error);
+			console.error('SeekDock: failed to focus the chat view, falling back to the container command', error);
 			await openContainerFallback();
 			openPath = 'containerFallback';
 		}
@@ -2038,7 +2100,7 @@ export function activate(context: vscode.ExtensionContext) {
 		if (provider.requestNewChat()) {
 			return;
 		}
-		// 视图还没创建，先打开再补发清空指令。
+		// The view does not exist yet, so open it first and let the queued clear request run.
 		await vscode.commands.executeCommand('seekdock.openSidebar');
 	}));
 
@@ -2049,7 +2111,7 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('seekdock.setApiKey', openSettings),
 	);
 
-	// 未在 package.json 中声明，仅供集成测试断言视图是否真正打开过。
+	// Not declared in package.json; integration tests use it to assert that the view really opened.
 	context.subscriptions.push(vscode.commands.registerCommand(
 		'seekdock._diagnostics',
 		() => ({

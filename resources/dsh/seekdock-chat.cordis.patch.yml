@@ -7,6 +7,12 @@
     includeHarnessIdentity: false
     personaPrefix: ''
 
+# The SDK profile disables its first-prompt title provider because headless
+# clients do not need session titles. SeekDock does, so reuse that provider to
+# replace the deterministic first-prompt fallback with a concise model title.
+- id: session-title-llm
+  disabled: false
+
 - id: skill-filesystem
   config:
     includeDefaultRoots: false

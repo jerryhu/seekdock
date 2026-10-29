@@ -39,7 +39,8 @@
     "sessionFormat": 4
   },
   "categories": [
-    "Other"
+    "AI",
+    "Chat"
   ],
   "activationEvents": [
     "onView:seekdock.chatView"
@@ -51,7 +52,7 @@
       "secondarySidebar": [
         {
           "id": "seekdockChat",
-          "title": "DeepSeek",
+          "title": "SeekDock",
           "icon": "resources/seekdock.svg"
         }
       ]
@@ -71,7 +72,7 @@
     "commands": [
       {
         "command": "seekdock.openSidebar",
-        "title": "Open DeepSeek",
+        "title": "Open SeekDock",
         "category": "SeekDock",
         "icon": {
           "light": "resources/seekdock-light.svg",

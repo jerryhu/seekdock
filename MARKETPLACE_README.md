@@ -17,7 +17,7 @@ SeekDock is a DeepSeek Harness AI coding assistant that runs in VS Code. It brin
 ## Getting Started
 
 1. Install SeekDock.
-2. Click the SeekDock icon in the upper-right corner of the editor, or use `Cmd+Alt+L`.
+2. Click the SeekDock icon in the upper-right corner of the editor, or press `Cmd+Alt+L` on macOS (`Ctrl+Alt+L` on Windows and Linux).
 3. Enter your DeepSeek API key in the chat view.
 4. Choose a permission mode and start asking questions.
 
@@ -35,6 +35,12 @@ You can also open the chat panel from the Command Palette by running `SeekDock: 
 - The API key is managed by VS Code `SecretStorage` and is not written to workspace settings or source code.
 - Conversations and tool execution are handled by DeepSeek Harness.
 - Conversation history is managed by DeepSeek Harness JSONL persistence and stored in the extension's global storage directory.
+
+## Source Code and Feedback
+
+SeekDock is open source: [github.com/jerryhu/seekdock](https://github.com/jerryhu/seekdock).
+
+Found a bug or have an idea for a new feature? Please open an issue at [github.com/jerryhu/seekdock/issues](https://github.com/jerryhu/seekdock/issues). Issue reports and feature requests are the fastest way to get problems fixed and improvements prioritized; please include your VS Code version, operating system, and reproduction steps.
 
 ## Disclaimer
 

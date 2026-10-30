@@ -88,19 +88,3 @@ Before starting the DSH runtime, the extension syncs the currently active prompt
 The settings page includes an MCP servers tab backed by `@deepseek-ai/dsh-mcp-client`. Server declarations are stored at `<globalStorageUri>/mcp/servers.json`; each settings change regenerates a DSH patch and restarts the runtime on its next use. Stdio servers default their working directory to the workspace root. Only `stdio` and DSH's Streamable HTTP transport are supported.
 
 `${secret:name}` values are kept in VS Code `SecretStorage` and injected into the runtime process environment, while `${workspaceFolder}` resolves to the active workspace root. Any other `${...}` variable is rejected. The import dialog reads `.vscode/mcp.json`, `~/.codex/config.toml`, `~/.claude.json`, and `~/.cursor/mcp.json` without modifying them. Imported names that do not match DSH's server-name contract are normalized with the same slug-and-hash strategy as DSH ACP, and both names are shown in the UI. SSE declarations are reported as unsupported.
-
-## Publishing
-
-For the extension marketplace, use `MARKETPLACE_README.md` rather than the development `README.md`. Explicitly specify the marketplace README when publishing:
-
-```bash
-npx --yes @vscode/vsce publish --readme MARKETPLACE_README.md
-```
-
-Alternatively, run:
-
-```bash
-npm run publish:marketplace
-```
-
-This script runs the same publish command with the `--readme MARKETPLACE_README.md` argument.

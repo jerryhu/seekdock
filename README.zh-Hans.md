@@ -121,20 +121,3 @@ Streamable HTTP 传输。
 只读读取 `.vscode/mcp.json`、`~/.codex/config.toml`、`~/.claude.json` 和
 `~/.cursor/mcp.json`。不符合 DSH 服务器名规则的导入名称会按 DSH ACP 相同的
 slug + 8 位 hash 策略规范化，并在 UI 中同时显示原名称与映射名称；SSE 声明会明确提示不支持。
-
-## 发布
-
-插件市场说明使用 `MARKETPLACE_README.md`，而不是开发用的 `README.md`。发布时显式传入
-市场文案：
-
-```bash
-npx --yes @vscode/vsce publish --readme MARKETPLACE_README.md
-```
-
-也可以运行：
-
-```bash
-npm run publish:marketplace
-```
-
-该脚本内部执行同一条带 `--readme MARKETPLACE_README.md` 参数的发布命令。

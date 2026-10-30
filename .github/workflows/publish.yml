@@ -1,0 +1,198 @@
+name: Publish to VS Code Marketplace
+
+# Publishing is tag-driven; re-run a failed run from the Actions UI instead of
+# moving the tag, because Marketplace versions cannot be overwritten.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: marketplace-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Fail before downloading dependencies when the tag, manifest, or
+      # changelog disagree about what is being released.
+      - name: Verify release metadata
+        id: release
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::${TAG_NAME} is not a stable v<major>.<minor>.<patch> tag."
+            exit 1
+          fi
+          package_version="$(node -p "require('./package.json').version")"
+          publisher="$(node -p "require('./package.json').publisher")"
+          extension_name="$(node -p "require('./package.json').name")"
+          if [ "$version" != "$package_version" ]; then
+            echo "::error::${TAG_NAME} does not match package.json version ${package_version}."
+            exit 1
+          fi
+          if [ "$publisher" != "JerryHu" ] || [ "$extension_name" != "seekdock" ]; then
+            echo "::error::Unexpected extension identity ${publisher}.${extension_name}."
+            exit 1
+          fi
+          if ! grep -qE "^## ${version//./\\.}([[:space:]]|$)" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for ${version}."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The suite needs a display for the VS Code test host on Linux.
+      - name: Run test suite
+        run: xvfb-run -a npm test
+
+      - name: Package five platform targets
+        run: npm run package:all
+
+      # Guard against a package missing its runtime payload or carrying the
+      # wrong identity; unzip output is written to files because `set -o
+      # pipefail` would treat an early-exiting grep as a pipeline failure.
+      - name: Verify VSIX contents
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          while read -r runtime_target vscode_target; do
+            file="seekdock-${vscode_target}-${VERSION}.vsix"
+            if [ ! -f "$file" ]; then
+              echo "::error::Missing $file."
+              exit 1
+            fi
+            unzip -p "$file" extension.vsixmanifest > "$RUNNER_TEMP/manifest.xml"
+            unzip -p "$file" extension/readme.md > "$RUNNER_TEMP/readme.md"
+            unzip -l "$file" > "$RUNNER_TEMP/listing.txt"
+            for expected in "Id=\"seekdock\"" "Version=\"${VERSION}\"" "Publisher=\"JerryHu\"" "TargetPlatform=\"${vscode_target}\""; do
+              if ! grep -qF "$expected" "$RUNNER_TEMP/manifest.xml"; then
+                echo "::error::$file is missing $expected."
+                exit 1
+              fi
+            done
+            if ! grep -qF "extension/resources/runtime/${runtime_target}/" "$RUNNER_TEMP/listing.txt"; then
+              echo "::error::$file does not bundle the ${runtime_target} runtime."
+              exit 1
+            fi
+            if ! head -n 1 "$RUNNER_TEMP/readme.md" | grep -qF '# SeekDock'; then
+              echo "::error::$file does not use MARKETPLACE_README.md."
+              exit 1
+            fi
+            echo "Verified $file"
+          done < <(node -e "import('./scripts/runtime-targets.mjs').then(m => m.RUNTIME_TARGETS.forEach(t => console.log(t, m.VSCODE_TARGETS[t])))")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: seekdock-*.vsix
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  publish:
+    name: Publish with Trusted Publishing
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Must match the Marketplace Trusted Publishing policy: repository
+    # jerryhu/seekdock, workflow publish.yml, environment production.
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Installs the lockfile-pinned @vscode/vsce; no secret is used here.
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: vsix
+
+      # One OIDC exchange per package; --skip-duplicate keeps re-runs
+      # idempotent when some platform packages were already published.
+      - name: Publish all platform packages
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          files=()
+          while read -r vscode_target; do
+            file="vsix/seekdock-${vscode_target}-${VERSION}.vsix"
+            if [ ! -f "$file" ]; then
+              echo "::error::Missing $file."
+              exit 1
+            fi
+            files+=("$file")
+          done < <(node -e "import('./scripts/runtime-targets.mjs').then(m => m.RUNTIME_TARGETS.forEach(t => console.log(m.VSCODE_TARGETS[t])))")
+          npx --yes @vscode/vsce publish --oidc --skip-duplicate --packagePath "${files[@]}"
+
+      # Marketplace propagation is asynchronous; verify rather than republish.
+      - name: Verify Marketplace listing
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/check-marketplace.mjs" <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { pathToFileURL } from 'node:url';
+
+          const { RUNTIME_TARGETS, VSCODE_TARGETS } = await import(
+            pathToFileURL(join(process.cwd(), 'scripts', 'runtime-targets.mjs')).href
+          );
+          const version = process.env.VERSION;
+          const expected = RUNTIME_TARGETS.map(target => VSCODE_TARGETS[target]);
+          const extension = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+          const published = new Set(
+            (Array.isArray(extension.versions) ? extension.versions : [])
+              .filter(item => item.version === version)
+              .map(item => item.targetPlatform),
+          );
+          const missing = expected.filter(target => !published.has(target));
+          if (missing.length > 0) {
+            console.error(`Marketplace is missing ${missing.join(', ')} for ${version}.`);
+            process.exit(1);
+          }
+          NODE
+          for attempt in $(seq 1 30); do
+            if npx --yes @vscode/vsce show JerryHu.seekdock --json > "$RUNNER_TEMP/marketplace.json" 2>/dev/null \
+              && node "$RUNNER_TEMP/check-marketplace.mjs" "$RUNNER_TEMP/marketplace.json"; then
+              echo "Marketplace lists ${VERSION} for all five platforms."
+              exit 0
+            fi
+            echo "Marketplace not updated yet (attempt ${attempt}/30); retrying in 20s."
+            sleep 20
+          done
+          echo "::error::Marketplace did not list ${VERSION} for all five platforms."
+          exit 1

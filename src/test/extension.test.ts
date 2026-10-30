@@ -167,15 +167,20 @@ suite('Extension Test Suite', () => {
 		assert.ok(resolved, 'no standalone settings panel was created after running seekdock.openSettings');
 	});
 
-	test('macOS arm64 runtime is bundled with the extension and resolvable', async () => {
+	test('host runtime is bundled with the extension and resolvable', () => {
 		const extension = vscode.extensions.all.find(
 			item => item.packageJSON?.name === 'seekdock'
 		);
 		assert.ok(extension, 'seekdock extension not found');
 
-		const runtime = resolveDshRuntime(extension.extensionUri.fsPath, 'darwin', 'arm64');
-		assert.strictEqual(runtime.target, 'macos-arm64');
-		assert.strictEqual(runtime.version, '0.2.1rc2');
-		assert.ok(runtime.executablePath.endsWith('deepseek-harness-sdk-runtime-macos-arm64'));
+		// Preparing the runtime only fetches the current host's target, so
+		// resolve the platform and architecture the extension actually runs on.
+		const runtime = resolveDshRuntime(extension.extensionUri.fsPath, process.platform, process.arch);
+		const compatibility = extension.packageJSON?.dshCompatibility as { runtime?: string } | undefined;
+		assert.strictEqual(
+			runtime.version,
+			compatibility?.runtime,
+			`bundled ${runtime.target} runtime ${runtime.version} does not match dshCompatibility.runtime`,
+		);
 	});
 });

@@ -676,4 +676,31 @@ suite('RPC contract', () => {
 			sessionId: 'seekdock-session',
 		}));
 	});
+
+	test('validates recoverable tool error categories', () => {
+		assert.ok(isHostToWebviewMessage({
+			type: 'toolCallUpdate',
+			requestId: 'request-1',
+			call: {
+				id: 'call-1',
+				name: 'edit',
+				arguments: '{"file_path":"src/app.ts"}',
+				status: 'error',
+				error: 'file has not been read',
+				recoverableError: 'file-not-read',
+			},
+		}));
+		assert.ok(!isHostToWebviewMessage({
+			type: 'toolCallUpdate',
+			requestId: 'request-1',
+			call: {
+				id: 'call-1',
+				name: 'edit',
+				arguments: '{"file_path":"src/app.ts"}',
+				status: 'error',
+				error: 'unknown failure',
+				recoverableError: 'unknown',
+			},
+		}));
+	});
 });

@@ -25,9 +25,10 @@ export function ToolCallView({ call }: { call: ToolCall }): JSX.Element {
 	const label = toolLabel(kind, call.name, t);
 	const summary = summarize(call, parsed, kind, t);
 	const icon = toolIcon(call.name);
+	const isRecoverable = call.recoverableError !== undefined;
 
 	return (
-		<section className={`tool-call ${call.status}`}>
+		<section className={`tool-call ${call.status}${isRecoverable ? ' recoverable-error' : ''}`}>
 			<button
 				type="button"
 				className="tool-call-header process-row"
@@ -53,14 +54,14 @@ export function ToolCallView({ call }: { call: ToolCall }): JSX.Element {
 						? (
 							<>
 								<span className="process-separator" aria-hidden="true" />
-								<span className={`tool-summary${call.status === 'error' ? ' error-summary' : ''}`}>
+								<span className={`tool-summary${summaryClass(call)}`}>
 									{summary}
 								</span>
 							</>
 						)
 						: null}
 				</span>
-				<span className="visually-hidden">{statusLabel(call.status, t)}</span>
+				<span className="visually-hidden">{statusLabel(call, t)}</span>
 			</button>
 			{open
 				? (
@@ -175,7 +176,7 @@ function ToolCallBody({
 				</div>
 				{output !== undefined && output.length > 0
 					? (
-						<pre className={`terminal-output${call.status === 'error' ? ' error-output' : ''}`}>
+						<pre className={`terminal-output${outputClass(call)}`}>
 							{output}
 						</pre>
 					)
@@ -210,7 +211,7 @@ function ToolCallBody({
 				? (
 					<div className="tool-io-section">
 						<span className="tool-section-label">{t('output')}</span>
-						<pre className={`tool-io-text${call.status === 'error' ? ' error-output' : ''}`}>
+						<pre className={`tool-io-text${outputClass(call)}`}>
 							{output}
 						</pre>
 					</div>
@@ -220,14 +221,28 @@ function ToolCallBody({
 	);
 }
 
-function statusLabel(status: ToolCall['status'], t: Translator): string {
-	switch (status) {
+function summaryClass(call: ToolCall): string {
+	if (call.recoverableError !== undefined) {
+		return ' warning-summary';
+	}
+	return call.status === 'error' ? ' error-summary' : '';
+}
+
+function outputClass(call: ToolCall): string {
+	if (call.status !== 'error') {
+		return '';
+	}
+	return call.recoverableError === undefined ? ' error-output' : ' warning-output';
+}
+
+function statusLabel(call: ToolCall, t: Translator): string {
+	switch (call.status) {
 		case 'running':
 			return t('running');
 		case 'completed':
 			return t('completed');
 		case 'error':
-			return t('failed');
+			return call.recoverableError === undefined ? t('failed') : t('needsAttention');
 		case 'awaiting-approval':
 			return t('waitingApproval');
 	}
@@ -310,6 +325,13 @@ function summarize(
 ): string {
 	if (call.status === 'awaiting-approval') {
 		return t('waitingApproval');
+	}
+	if (call.recoverableError !== undefined) {
+		const message = call.recoverableError === 'file-not-read'
+			? t('fileReadRequired')
+			: t('fileChangedReread');
+		const path = stringArgument(parsed, 'path') ?? stringArgument(parsed, 'file_path');
+		return path === undefined ? message : `${message} · ${compact(path)}`;
 	}
 	const keys = kind === 'bash'
 		? ['description', 'command']

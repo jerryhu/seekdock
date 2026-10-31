@@ -1549,6 +1549,10 @@ a:hover {
 	color: var(--vscode-errorForeground);
 }
 
+.tool-summary.warning-summary {
+	color: var(--vscode-editorWarning-foreground, var(--vscode-terminal-ansiYellow));
+}
+
 .tool-call.running .tool-summary {
 	animation: process-shimmer 1.4s ease-in-out infinite;
 }
@@ -1630,6 +1634,10 @@ a:hover {
 	color: var(--vscode-errorForeground);
 }
 
+.terminal-output.warning-output {
+	color: var(--vscode-editorWarning-foreground, var(--vscode-terminal-ansiYellow));
+}
+
 .terminal-empty {
 	padding: 10px 14px;
 	color: var(--seek-muted);
@@ -1675,6 +1683,10 @@ a:hover {
 
 .tool-io-text.error-output {
 	color: var(--vscode-errorForeground);
+}
+
+.tool-io-text.warning-output {
+	color: var(--vscode-editorWarning-foreground, var(--vscode-terminal-ansiYellow));
 }
 
 .approval-card {

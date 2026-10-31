@@ -11,6 +11,7 @@ import {
 	isNonNegativeInteger,
 	isPositiveInteger,
 } from '../shared/value-validation.ts';
+import { recoverableToolError } from './tool-call-error.ts';
 
 /** One UI-relevant activity distilled from a DSH session notification. */
 export type HarnessActivityEvent =
@@ -228,6 +229,7 @@ export class HarnessEventTranslator {
 		const isError = message.isError === true;
 		const error = asRecord(data.error);
 		const resultText = contentText(message.content);
+		const recoverable = recoverableToolError(error?.code);
 		const call: ToolCall = {
 			id: message.toolCallId,
 			name: previous?.name ?? 'tool',
@@ -235,7 +237,10 @@ export class HarnessEventTranslator {
 			status: isError ? 'error' : 'completed',
 			...(resultText.length === 0 ? {} : { result: resultText }),
 			...(isError
-				? { error: stringValue(error?.reason) ?? resultText ?? 'Tool execution failed.' }
+				? {
+					error: stringValue(error?.reason) ?? resultText ?? 'Tool execution failed.',
+					...(recoverable === undefined ? {} : { recoverableError: recoverable }),
+				}
 				: {}),
 		};
 		this.calls.set(call.id, call);

@@ -20,6 +20,9 @@ import {
 /** Lifecycle of one tool invocation shown in the chat timeline. */
 export type ToolCallStatus = 'running' | 'completed' | 'error' | 'awaiting-approval';
 
+/** A tool failure that can be resolved by re-observing the target file. */
+export type RecoverableToolError = 'file-not-read' | 'file-changed';
+
 /** Serialized tool invocation shared by the extension host and Webview. */
 export interface ToolCall {
 	id: string;
@@ -28,6 +31,8 @@ export interface ToolCall {
 	status: ToolCallStatus;
 	result?: string;
 	error?: string;
+	/** Known recoverable failure category used for retry-aware presentation. */
+	recoverableError?: RecoverableToolError;
 }
 
 /** Assistant content persisted by DSH and rendered in the chat transcript. */
@@ -605,7 +610,8 @@ function isToolCall(value: unknown): value is ToolCall {
 		&& typeof value.arguments === 'string'
 		&& isToolCallStatus(value.status)
 		&& (value.result === undefined || typeof value.result === 'string')
-		&& (value.error === undefined || typeof value.error === 'string');
+		&& (value.error === undefined || typeof value.error === 'string')
+		&& (value.recoverableError === undefined || isRecoverableToolError(value.recoverableError));
 }
 
 function isApproval(value: unknown): value is Approval {
@@ -684,5 +690,9 @@ function isToolCallStatus(value: unknown): value is ToolCallStatus {
 		|| value === 'completed'
 		|| value === 'error'
 		|| value === 'awaiting-approval';
+}
+
+function isRecoverableToolError(value: unknown): value is RecoverableToolError {
+	return value === 'file-not-read' || value === 'file-changed';
 }
 

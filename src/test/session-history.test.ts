@@ -159,6 +159,72 @@ suite('Session history', () => {
 		}]);
 	});
 
+	test('replays recoverable tool failures with their original reason', () => {
+		const events: SessionEvent[] = [
+			{
+				type: 'turn/start',
+				seq: SessionSeq(0),
+				time: 0,
+				data: { turn: 1 },
+			},
+			userMessage(1, 'Edit the file'),
+			{
+				type: 'tool/call',
+				seq: SessionSeq(2),
+				time: 2,
+				data: {
+					turn: 1,
+					step: 1,
+					callId: ToolCallId('call-edit'),
+					name: 'edit',
+					arguments: '{"file_path":"src/app.ts"}',
+				},
+			},
+			{
+				type: 'tool/result',
+				seq: SessionSeq(3),
+				time: 3,
+				data: {
+					turn: 1,
+					step: 1,
+					message: {
+						id: MessageId('result-3'),
+						role: 'tool',
+						source: { kind: 'tool', callId: ToolCallId('call-edit') },
+						toolCallId: ToolCallId('call-edit'),
+						content: [{
+							type: 'text',
+							text: 'cannot modify "src/app.ts": file has not been read',
+						}],
+						isError: true,
+					},
+					error: {
+						name: 'FsError',
+						code: 'FS_NOT_OBSERVED',
+						reason: 'cannot modify "src/app.ts": file has not been read',
+					},
+				},
+				surfaceOp: 'append',
+			},
+		];
+
+		const messages = transcriptFromSessionEvents(events);
+		assert.ok(messages[1]?.kind === 'assistant');
+		assert.deepStrictEqual(messages[1].entries[0], {
+			kind: 'tool',
+			id: 'history-tool-call-edit',
+			call: {
+				id: 'call-edit',
+				name: 'edit',
+				arguments: '{"file_path":"src/app.ts"}',
+				status: 'error',
+				result: 'cannot modify "src/app.ts": file has not been read',
+				error: 'cannot modify "src/app.ts": file has not been read',
+				recoverableError: 'file-not-read',
+			},
+		});
+	});
+
 	test('attaches a stored changed-file card to the turn that recorded it', () => {
 		const events: SessionEvent[] = [
 			{ type: 'turn/start', seq: SessionSeq(0), time: 0, data: { turn: 1 } },

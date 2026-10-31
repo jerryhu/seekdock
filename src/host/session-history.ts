@@ -22,6 +22,7 @@ import type {
 } from '../shared/rpc.ts';
 import type { WorkspaceChangeSet } from '../shared/workspace-changes.ts';
 import { LocalizedError } from '../shared/i18n/index.ts';
+import { recoverableToolError } from './tool-call-error.ts';
 
 /** Session list plus the complete replayable transcript requested by the Webview. */
 export interface LoadedSession {
@@ -337,6 +338,7 @@ export function transcriptFromSessionEvents(
 				const status = event.data.message.isError === true || event.data.error !== undefined
 					? 'error'
 					: 'completed';
+				const recoverable = recoverableToolError(event.data.error?.code);
 				const toolId = `history-tool-${callId}`;
 				const index = message.entries.findIndex(
 					entry => entry.kind === 'tool' && entry.id === toolId,
@@ -351,9 +353,8 @@ export function transcriptFromSessionEvents(
 							arguments: '{}',
 							status,
 							result,
-							...(event.data.error === undefined
-								? {}
-								: { error: event.data.error.name }),
+							...toolErrorFields(event.data.error),
+							...(recoverable === undefined ? {} : { recoverableError: recoverable }),
 						},
 					});
 				} else {
@@ -365,13 +366,13 @@ export function transcriptFromSessionEvents(
 								...entry.call,
 								status,
 								result,
-								...(event.data.error === undefined
-									? {}
-									: { error: event.data.error.name }),
+								...toolErrorFields(event.data.error),
+								...(recoverable === undefined ? {} : { recoverableError: recoverable }),
 							} satisfies ToolCall,
 						};
 					}
 				}
+
 				break;
 			}
 			case 'workspace/changes': {
@@ -407,6 +408,12 @@ export function transcriptFromSessionEvents(
 	}
 	flushAssistant();
 	return messages;
+}
+
+function toolErrorFields(
+	error: { name: string; reason?: string } | undefined,
+): Pick<ToolCall, 'error'> {
+	return error === undefined ? {} : { error: error.reason ?? error.name };
 }
 
 /**

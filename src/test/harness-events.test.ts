@@ -150,6 +150,44 @@ suite('Harness event translation', () => {
 		);
 	});
 
+	test('classifies recoverable filesystem failures', () => {
+		const translator = new HarnessEventTranslator('root');
+		translator.translate(notification('root', 'tool/call', {
+			callId: 'call-edit',
+			name: 'edit',
+			arguments: '{"file_path":"src/app.ts"}',
+		}));
+		assert.deepStrictEqual(
+			translator.translate(notification('root', 'tool/result', {
+				message: {
+					toolCallId: 'call-edit',
+					isError: true,
+					content: [{
+						type: 'text',
+						text: 'cannot modify "src/app.ts": file has not been read',
+					}],
+				},
+				error: {
+					name: 'FsError',
+					code: 'FS_NOT_OBSERVED',
+					reason: 'cannot modify "src/app.ts": file has not been read',
+				},
+			})),
+			[{
+				type: 'toolCallUpdate',
+				call: {
+					id: 'call-edit',
+					name: 'edit',
+					arguments: '{"file_path":"src/app.ts"}',
+					status: 'error',
+					result: 'cannot modify "src/app.ts": file has not been read',
+					error: 'cannot modify "src/app.ts": file has not been read',
+					recoverableError: 'file-not-read',
+				},
+			}],
+		);
+	});
+
 	test('ignores child sessions and surfaces approvals and turn errors', () => {
 		const translator = new HarnessEventTranslator('root');
 		assert.deepStrictEqual(

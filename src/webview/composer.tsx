@@ -33,8 +33,8 @@ interface ComposerProps {
 	configured: boolean;
 	runtimeReady: boolean;
 	focusToken: number;
-	resetToken: number;
 	initialDraft: string;
+	initialSkills: readonly ComposerSkill[];
 	files: readonly ComposerFile[];
 	pickingFiles: boolean;
 	fileSelectionError?: string;
@@ -80,8 +80,8 @@ export function Composer({
 	configured,
 	runtimeReady,
 	focusToken,
-	resetToken,
 	initialDraft,
+	initialSkills,
 	files,
 	pickingFiles,
 	fileSelectionError,
@@ -113,7 +113,7 @@ export function Composer({
 }: ComposerProps): JSX.Element {
 	const { t } = useI18n();
 	const [text, setText] = useState(initialDraft);
-	const [selectedSkills, setSelectedSkills] = useState<readonly ComposerSkill[]>([]);
+	const [selectedSkills, setSelectedSkills] = useState<readonly ComposerSkill[]>(initialSkills);
 	const [skillsOpen, setSkillsOpen] = useState(false);
 	const [skillQuery, setSkillQuery] = useState('');
 	const [skillHighlight, setSkillHighlight] = useState(0);
@@ -152,16 +152,6 @@ export function Composer({
 	}, [text]);
 
 	useEffect(() => {
-		if (resetToken > 0) {
-			setText('');
-			setSelectedSkills([]);
-			setSkillsOpen(false);
-			setSkillQuery('');
-			vscode.setState({ draft: '', files: [] });
-		}
-	}, [resetToken, vscode]);
-
-	useEffect(() => {
 		if (!skillsOpen) {
 			return;
 		}
@@ -183,6 +173,13 @@ export function Composer({
 		setSkillHighlight(current => Math.min(current, filteredSkills.length - 1));
 	}, [filteredSkills.length]);
 
+	// The Composer is the only owner of the unsent draft, so it persists text,
+	// attachments, and skill chips together: any remount (history page, runtime
+	// restart) restores exactly what the user last saw.
+	useEffect(() => {
+		vscode.setState({ draft: text, files, skills: selectedSkills });
+	}, [files, selectedSkills, text, vscode]);
+
 	const removeLastSkill = (): void => {
 		setSelectedSkills(current => current.slice(0, -1));
 		input.current?.focus();
@@ -197,7 +194,6 @@ export function Composer({
 		setText('');
 		setSkillsOpen(false);
 		setSkillQuery('');
-		vscode.setState({ draft: '', files });
 		queueMicrotask(() => input.current?.focus());
 	};
 
@@ -219,7 +215,6 @@ export function Composer({
 		setSelectedSkills([]);
 		setSkillsOpen(false);
 		setSkillQuery('');
-		vscode.setState({ draft: '', files: [] });
 	};
 
 	const planModeEnabled = planModePending === true ? !planModeActive : planModeActive;
@@ -381,7 +376,6 @@ export function Composer({
 						setSkillQuery(query ?? '');
 						setSkillHighlight(0);
 						setText(value);
-						vscode.setState({ draft: value, files });
 					}}
 					onKeyDown={(event) => {
 						if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {

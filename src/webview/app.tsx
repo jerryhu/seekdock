@@ -142,7 +142,6 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 		language: detectInitialLanguage(),
 	});
 	const [focusToken, setFocusToken] = useState(0);
-	const [resetToken, setResetToken] = useState(0);
 	const [activeRequestId, setActiveRequestId] = useState<string>();
 	const pendingWorkspaceDiffs = useRef(new Map<string, {
 		timer: number;
@@ -151,16 +150,10 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 	}>());
 	const configured = useRef(ui.configured);
 	configured.current = ui.configured;
-	const initialDraft = vscode.getState()?.draft ?? '';
+	const storedDraft = vscode.getState();
+	const initialDraft = storedDraft?.draft ?? '';
+	const initialSkills = storedDraft?.skills ?? [];
 	const t = createTranslator(ui.language);
-
-	useEffect(() => {
-		const state = vscode.getState();
-		vscode.setState({
-			...(state?.draft === undefined ? {} : { draft: state.draft }),
-			files: ui.composerFiles,
-		});
-	}, [ui.composerFiles, vscode]);
 
 	useEffect(() => {
 		const listener = (event: MessageEvent<unknown>): void => {
@@ -282,25 +275,22 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 			case 'sessionDeleted':
 				if (message.wasActive) {
 					store.reset();
-					setResetToken(value => value + 1);
 					setSessionReturnTarget('home');
 					setConversationOpen(false);
 					setView('chat');
 					setRuntimeRestartAfterDelete(true);
+					// The composer draft outlives the session: deleting it must not
+					// discard text the user has not sent yet.
 					setUi(current => ({
 						...current,
 						permissionPending: undefined,
 						permissionCurrent: current.permissionCatalog?.defaultPreset,
 						permissionError: undefined,
-						composerFiles: [],
-						pickingFiles: false,
-						fileSelectionError: undefined,
 						planModeActive: false,
 						planModePending: undefined,
 						planModeError: undefined,
 						settingPlanMode: false,
 					}));
-					vscode.setState({ draft: '', files: [] });
 				}
 				setRenameDialog(undefined);
 				setRenameError(undefined);
@@ -435,6 +425,8 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 				break;
 			case 'newChat':
 				store.reset();
+				// An unsent composer draft is user input, not session state: it
+				// survives new chats, session switches, and deletions until sent.
 				setActiveRequestId(undefined);
 				setSessionReturnTarget('home');
 				setConversationOpen(false);
@@ -451,18 +443,13 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 					permissionPending: undefined,
 					permissionCurrent: current.permissionCatalog?.defaultPreset,
 					permissionError: undefined,
-					composerFiles: [],
-					pickingFiles: false,
-					fileSelectionError: undefined,
 					planModeActive: false,
 					planModePending: undefined,
 					planModeError: undefined,
 					settingPlanMode: false,
 					settingPermission: false,
 				}));
-				vscode.setState({ draft: '', files: [] });
 				setView('chat');
-				setResetToken(value => value + 1);
 				setFocusToken(value => value + 1);
 				break;
 			case 'focus':
@@ -712,10 +699,15 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 		vscode.postMessage({ type: 'newChat', requestId: crypto.randomUUID() });
 	};
 
-	// Leaving the history page is Webview-local on purpose: while a turn runs the
-	// Host rejects every session request, and a navigation must never wait for it.
-	const backToChat = (): void => {
+	// Back from history always lands on the home page instead of replaying the
+	// view it was opened from. Navigation stays Webview-local: while a turn runs
+	// the Host rejects every session request, so leaving waits for nothing.
+	const returnHomeFromHistory = (): void => {
 		setView('chat');
+		if (ui.busy || history.activeSessionId === undefined) {
+			return;
+		}
+		startNewChat();
 	};
 
 	const returnFromSession = (): void => {
@@ -762,7 +754,7 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 				loading={history.loading}
 				error={history.error}
 				busy={ui.busy}
-				onBack={backToChat}
+				onBack={returnHomeFromHistory}
 				onDelete={deleteSession}
 				onRefresh={refreshHistory}
 				onSelect={(sessionId) => selectSession(sessionId, 'history')}
@@ -924,8 +916,8 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 				configured={ui.configured}
 				runtimeReady={ui.runtimeStatus === 'ready'}
 				focusToken={focusToken}
-				resetToken={resetToken}
 				initialDraft={initialDraft}
+				initialSkills={initialSkills}
 				files={ui.composerFiles}
 				pickingFiles={ui.pickingFiles}
 				{...(ui.fileSelectionError === undefined

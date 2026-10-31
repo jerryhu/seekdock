@@ -1,8 +1,11 @@
+import type { ComposerSkill } from '../shared/composer-skills.ts';
 import type { ComposerFile, WebviewToHostMessage } from '../shared/rpc.ts';
 
+/** Unsent composer draft, kept when the Webview is remounted. */
 export interface WebviewState {
 	draft?: string;
 	files?: readonly ComposerFile[];
+	skills?: readonly ComposerSkill[];
 }
 
 export interface VsCodeApi {

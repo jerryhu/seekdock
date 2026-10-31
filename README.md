@@ -20,7 +20,7 @@
 
 All durable data lives in `~/.seekdock` (`%USERPROFILE%\.seekdock` on Windows): `dsh-home/` (session logs and the DSH profile), `workspace-change-history/`, `mcp/`, and `active-system-prompt.md`. Set `SEEKDOCK_DATA_HOME` to relocate it.
 
-The data directory sits outside VS Code's per-extension storage on purpose: VS Code removes `User/globalStorage/<extension id>` when an extension is uninstalled, which would delete every session. Builds up to 0.1.x kept their data there; SeekDock does not copy it automatically, so a history from those versions stays in that folder — copy it into `~/.seekdock` if you want to keep it. Upgrading by installing the new VSIX over the old one (`code --install-extension <file>.vsix --force`) never touches either location.
+The data directory sits outside VS Code's per-extension storage on purpose: VS Code removes `User/globalStorage/<extension id>` when an extension is uninstalled, which would delete every session. Builds up to 0.1.0 stored their data there, so the first activation of a newer build moves it into `~/.seekdock` once; if that move fails, SeekDock keeps using the previous location instead of starting empty. Upgrading by installing the new VSIX over the old one (`code --install-extension <file>.vsix --force`) never touches either location.
 
 ## Development and Packaging
 

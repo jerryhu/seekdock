@@ -28,8 +28,8 @@ DSH profile）、`workspace-change-history/`、`mcp/` 以及 `active-system-prom
 `SEEKDOCK_DATA_HOME` 可以改位置。
 
 数据目录刻意放在 VS Code 的扩展存储之外：VS Code 卸载扩展时会删除
-`User/globalStorage/<扩展 id>`，会话会随之消失。0.1.x 及更早版本把数据存在那里，SeekDock 不会
-自动搬运；需要旧历史时请把该目录手动拷贝到 `~/.seekdock`。覆盖安装
+`User/globalStorage/<扩展 id>`，会话会随之消失。0.1.0 及更早版本把数据存在那里，因此新版首次
+激活会把数据一次性迁移到 `~/.seekdock`；迁移失败时继续使用旧路径，而不是从空目录开始。覆盖安装
 （`code --install-extension <file>.vsix --force`）不会影响任何一个位置。
 
 ## 开发与打包

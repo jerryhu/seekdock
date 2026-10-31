@@ -8,7 +8,7 @@ SeekDock is a DeepSeek Harness AI coding assistant that runs in VS Code. It brin
 
 - **DeepSeek Harness Agent**: Uses the official DSH SDK runtime for conversations, reasoning, tool calling, and code modifications.
 - **Right-side auxiliary sidebar**: Provides a compact three-column workflow across the file explorer, editor, and chat.
-- **Conversation history**: Browse previous conversations, restore them after restarting VS Code, and confirm before deleting them. Sessions are stored in `~/.seekdock`, so uninstalling or reinstalling the extension keeps them.
+- **Conversation history**: Browse previous conversations, restore them after restarting VS Code, and confirm before deleting them. Sessions are stored in `~/.seekdock`, so uninstalling or reinstalling the extension keeps them; builds up to 0.1.0 stored sessions inside VS Code's extension storage and are migrated automatically on first activation.
 - **Skills**: Type `/` in the input box to search for and select multiple Skills, then send `/name` commands with your message.
 - **Permission modes**: Offers four modes: Read-only, Workspace Write, Full Access, and experimental Auto Review.
 - **Real-time output**: Stop generation while the Agent is running, while keeping responses and reasoning content that have already been displayed.

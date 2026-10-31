@@ -29,6 +29,7 @@ interface Diagnostics {
 	settingsPanelResolved?: boolean;
 	openPath?: 'none' | 'focusView' | 'containerFallback';
 	dataRoot?: string;
+	migratedFrom?: string;
 }
 
 /** Reads the state of the running extension instance (the module imported here is not the instance loaded by the host). */

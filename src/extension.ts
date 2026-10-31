@@ -2139,11 +2139,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	console.log('Congratulations, your extension "seekdock" is now active!');
 
 	// Durable data lives outside the extension storage, which VS Code deletes on uninstall.
-	const dataRoot = await resolveDataRoot({ overridePath: process.env[DATA_ROOT_ENV] });
+	const dataRoot = await resolveDataRoot({
+		legacyRoot: context.globalStorageUri.fsPath,
+		overridePath: process.env[DATA_ROOT_ENV],
+	});
 	const provider = new ChatViewProvider(
 		context.extensionUri,
 		context.secrets,
-		vscode.Uri.file(dataRoot),
+		vscode.Uri.file(dataRoot.root),
 		context.globalState,
 	);
 	activeProvider = provider;
@@ -2194,7 +2197,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			chatViewResolved: provider.resolved,
 			settingsPanelResolved: provider.settingsResolved,
 			openPath,
-			dataRoot,
+			dataRoot: dataRoot.root,
+			...(dataRoot.migratedFrom === undefined
+				? {}
+				: { migratedFrom: dataRoot.migratedFrom }),
 		})
 	));
 }

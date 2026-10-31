@@ -17,24 +17,39 @@ export function apply(ctx) {
 		throw new Error('SeekDock: SEEKDOCK_PLAN_SOCKET is not set.');
 	}
 
-	const server = createServer(socket => {
+	// The host writes one newline-framed request and may half-close immediately.
+	// On Windows named pipes, waiting for that FIN can close the writable side
+	// before the response is sent, so answer as soon as the frame is complete.
+	const server = createServer({ allowHalfOpen: true }, socket => {
 		let input = '';
+		let answered = false;
 		socket.setEncoding('utf8');
 		socket.on('error', error => {
 			ctx.logger.warn(`SeekDock plan socket error: ${String(error)}`);
 		});
-		socket.on('data', chunk => {
-			input += chunk;
-		});
-		socket.on('end', () => {
+		const answer = () => {
+			if (answered) {
+				return;
+			}
+			const boundary = input.indexOf('\n');
+			if (boundary < 0 && !socket.readableEnded) {
+				return;
+			}
+			answered = true;
+			const requestText = boundary < 0 ? input : input.slice(0, boundary);
 			let response;
 			try {
-				response = handle(ctx, JSON.parse(input));
+				response = handle(ctx, JSON.parse(requestText));
 			} catch (error) {
 				response = { ok: false, message: errorMessage(error) };
 			}
 			socket.end(`${JSON.stringify(response)}\n`);
+		};
+		socket.on('data', chunk => {
+			input += chunk;
+			answer();
 		});
+		socket.on('end', answer);
 	});
 
 	ctx.effect(() => (async () => {

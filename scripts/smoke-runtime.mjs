@@ -245,6 +245,7 @@ const skillSocketPath = join(temporaryRoot, 'skill.sock');
 const sessionTitleSocketPath = join(temporaryRoot, 'session-title.sock');
 const workspaceChangesSocketPath = join(temporaryRoot, 'workspace-changes.sock');
 const approvalSocketPath = join(temporaryRoot, 'approval.sock');
+const planReviewSocketPath = join(temporaryRoot, 'plan-review.sock');
 const userAgentsHome = join(temporaryRoot, 'home', '.agents');
 const workspaceSkillRoot = join(workspaceRoot, '.agents', 'skills');
 const userSkillRoot = join(userAgentsHome, 'skills');
@@ -309,6 +310,7 @@ const makeHarness = () => new DeepSeekHarness({
 		DSH_AGENTS_HOME: userAgentsHome,
 		HOME: join(temporaryRoot, 'home'),
 			SEEKDOCK_APPROVAL_SOCKET: approvalSocketPath,
+			SEEKDOCK_PLAN_REVIEW_SOCKET: planReviewSocketPath,
 			SEEKDOCK_CANCEL_SOCKET: cancelSocketPath,
 			SEEKDOCK_PERMISSION_SOCKET: permissionSocketPath,
 			SEEKDOCK_PLAN_SOCKET: planSocketPath,

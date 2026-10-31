@@ -1734,6 +1734,114 @@ a:hover {
 	color: var(--seek-muted);
 }
 
+.plan-review {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 10px;
+	background: var(--seek-surface-raised);
+	border: 1px solid var(--vscode-inputValidation-infoBorder, var(--seek-border));
+	border-radius: 6px;
+}
+
+.plan-review-header {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+}
+
+.plan-review-header > svg {
+	flex: none;
+	color: var(--vscode-focusBorder);
+}
+
+.plan-review-title {
+	flex: 1;
+	min-width: 0;
+	font-size: 12px;
+	font-weight: 650;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.plan-review-state {
+	flex: none;
+	font-size: 11px;
+	color: var(--seek-muted);
+}
+
+.plan-review-plan {
+	max-height: 320px;
+	padding: 8px 10px;
+	overflow: auto;
+	font-size: 12px;
+	line-height: 1.55;
+	background: var(--vscode-editor-background, var(--seek-surface));
+	border-radius: 4px;
+}
+
+.plan-review-feedback {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 11.5px;
+	color: var(--seek-muted);
+}
+
+.plan-review-feedback textarea {
+	min-height: 44px;
+	padding: 6px 8px;
+	color: var(--vscode-input-foreground, var(--vscode-foreground));
+	background: var(--vscode-input-background);
+	border: 1px solid var(--vscode-input-border, var(--seek-border));
+	border-radius: 4px;
+	resize: vertical;
+}
+
+.plan-review-feedback textarea::placeholder {
+	color: var(--vscode-input-placeholderForeground, var(--seek-muted));
+}
+
+.plan-review-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.plan-review-actions .primary-button,
+.plan-review-actions .secondary-button {
+	align-self: auto;
+	min-height: 26px;
+	padding: 3px 10px;
+	font-size: 11.5px;
+}
+
+.plan-review.resolved {
+	opacity: 0.9;
+}
+
+.plan-review.resolved.approved {
+	border-color: var(--vscode-testing-iconPassed, var(--seek-border));
+}
+
+.plan-review.resolved.keep-planning,
+.plan-review.resolved.cancelled,
+.plan-review.resolved.unavailable {
+	border-color: var(--vscode-inputValidation-warningBorder, var(--seek-border));
+}
+
+.plan-review-outcome {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--seek-muted);
+}
+
+.plan-review.resolved.approved .plan-review-outcome {
+	color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+}
+
 .message-error {
 	display: flex;
 	align-items: flex-start;

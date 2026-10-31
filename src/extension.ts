@@ -7,6 +7,12 @@ import {
 	type ApprovalOutcome,
 	type ApprovalQuestion,
 } from './host/approval-broker.ts';
+import {
+	PlanReviewBroker,
+	type PlanReviewQuestion,
+	type PlanReviewVerdict,
+} from './host/plan-review-broker.ts';
+import { DATA_ROOT_ENV, resolveDataRoot } from './host/data-root.ts';
 import { resolveDshRuntime } from './host/dsh-runtime.ts';
 import { formatErrorMessage as formatError } from './host/error-format.ts';
 import type { HarnessActivityEvent } from './host/harness-events.ts';
@@ -68,6 +74,7 @@ import {
 	type ComposerFile,
 	type HostToWebviewMessage,
 	type PermissionCatalog,
+	type PlanReview,
 	type RuntimeStatus,
 	type WebviewToHostMessage,
 } from './shared/rpc.ts';
@@ -124,10 +131,15 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	private readonly workspaceDiffs = new WorkspaceDiffDocuments();
 	private readonly workspaceChanges: WorkspaceChangeStore;
 	private approvalBroker: ApprovalBroker | undefined;
+	private planReviewBroker: PlanReviewBroker | undefined;
 	private readonly pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>();
 	private readonly earlyApprovalDecisions = new Map<
 		string,
 		{ outcome: ApprovalOutcome; expiresAt: number }
+	>();
+	private readonly pendingPlanReviews = new Map<
+		string,
+		(answer: PlanReviewVerdict | undefined) => void
 	>();
 	private permissionCatalog: PermissionCatalog | null = null;
 	private permissionCurrent: string | undefined;
@@ -212,7 +224,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			}
 			this.view = undefined;
 			this.webviewHandshakeComplete = false;
-			this.cancelPendingApprovals('cancelled');
+			this.cancelPendingInteractions();
 		});
 
 		// The Webview may be created on demand, so replay a new-chat request that arrived earlier.
@@ -316,7 +328,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	shutdown(): Promise<void> {
 		this.shutdownPromise ??= (async () => {
 			await this.workspaceChanges.dispose();
-			this.cancelPendingApprovals('cancelled');
+			this.cancelPendingInteractions();
 			if (this.permissionRefreshTimer !== undefined) {
 				clearTimeout(this.permissionRefreshTimer);
 				this.permissionRefreshTimer = undefined;
@@ -329,6 +341,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 				await this.runtimeTask?.catch(() => {});
 				await this.runner?.dispose();
 				await this.approvalBroker?.dispose();
+				await this.planReviewBroker?.dispose();
 			} catch (error) {
 				console.error('SeekDock: failed to stop the DeepSeek Harness runtime', error);
 			}
@@ -393,6 +406,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			case 'approvalResponse':
 				await this.answerApproval(message);
 				break;
+			case 'planReviewResponse':
+				await this.answerPlanReview(message);
+				break;
 			case 'requestWorkspaceFileDiff':
 				await this.requestWorkspaceFileDiff(message);
 				break;
@@ -424,7 +440,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	}
 
 	private resetActiveSessionState(): void {
-		this.cancelPendingApprovals('cancelled');
+		this.cancelPendingInteractions();
 		this.activeSessionId = undefined;
 		this.resumeActiveSession = false;
 		this.permissionPending = undefined;
@@ -444,7 +460,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			}
 			const changesBySeq = await this.workspaceChanges.readSession(message.sessionId);
 			const loaded = await this.getHistoryStore().load(message.sessionId, changesBySeq);
-			this.cancelPendingApprovals('cancelled');
+			this.cancelPendingInteractions();
 			this.activeSessionId = loaded.sessionId;
 			this.resumeActiveSession = true;
 			this.permissionPending = undefined;
@@ -708,7 +724,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			if (this.pendingCancelRequestId === message.requestId) {
 				this.pendingCancelRequestId = undefined;
 			}
-			this.cancelPendingApprovals('cancelled');
+			this.cancelPendingInteractions();
 			await this.postMessage({ type: 'busy', busy: false });
 			await this.postSettingsState();
 			await this.postSessionHistory();
@@ -969,7 +985,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		await this.showSkillDocument(skill);
 	}
 
-	/** @returns the persisted MCP declarations and their globalStorage file. */
+	/** @returns the persisted MCP declarations and their data-directory file. */
 	async getMcpServers(): Promise<{ path: string; servers: readonly McpServer[] }> {
 		try {
 			return {
@@ -1245,6 +1261,48 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		});
 	}
 
+	/** @returns the pending plan review's decision, forwarded to DSH. */
+	private async answerPlanReview(
+		message: Extract<WebviewToHostMessage, { type: 'planReviewResponse' }>,
+	): Promise<void> {
+		const pending = this.pendingPlanReviews.get(message.reviewId);
+		if (pending !== undefined) {
+			this.pendingPlanReviews.delete(message.reviewId);
+			pending({
+				approved: message.decision === 'approve',
+				...(message.feedback === undefined || message.feedback.trim().length === 0
+					? {}
+					: { feedback: message.feedback }),
+			});
+		}
+		await this.postMessage({
+			type: 'planReviewResolved',
+			reviewId: message.reviewId,
+			decision: message.decision === 'approve' ? 'approved' : 'keep-planning',
+		});
+	}
+
+	/** Hand one runtime plan review to the Webview and wait for its answer. */
+	private requestPlanReview(question: PlanReviewQuestion): Promise<PlanReviewVerdict | undefined> {
+		const requestId = this.activeAnswerRequestId;
+		if (question.sessionId !== this.activeSessionId
+			|| this.view === undefined
+			|| requestId === undefined) {
+			return Promise.resolve(undefined);
+		}
+		const review: PlanReview = {
+			id: `plan-review:${question.sessionId}:${question.callId ?? question.questionId}`,
+			plan: question.plan,
+		};
+		if (this.pendingPlanReviews.has(review.id)) {
+			return Promise.resolve(undefined);
+		}
+		void this.postMessage({ type: 'planReviewRequest', requestId, review });
+		return new Promise(resolve => {
+			this.pendingPlanReviews.set(review.id, resolve);
+		});
+	}
+
 	private takeEarlyApprovalDecision(toolCallId: string): ApprovalOutcome | undefined {
 		const now = Date.now();
 		for (const [key, entry] of this.earlyApprovalDecisions) {
@@ -1260,13 +1318,24 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		return entry.outcome;
 	}
 
-	/** Resolve every pending question with a closed outcome. */
-	private cancelPendingApprovals(outcome: ApprovalOutcome): void {
+	/** Fail every pending approval and plan review closed. */
+	private cancelPendingInteractions(): void {
 		for (const [key, resolve] of this.pendingApprovals) {
 			this.pendingApprovals.delete(key);
-			resolve(outcome);
+			resolve('cancelled');
 		}
 		this.earlyApprovalDecisions.clear();
+		// The plan card has no durable event behind it, so close it here; the
+		// turn's tool result lands on the tool row instead.
+		for (const [key, resolve] of this.pendingPlanReviews) {
+			this.pendingPlanReviews.delete(key);
+			resolve(undefined);
+			void this.postMessage({
+				type: 'planReviewResolved',
+				reviewId: key,
+				decision: 'cancelled',
+			});
+		}
 	}
 
 	/** Re-read the catalog and the active session's current preset. */
@@ -1879,6 +1948,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			onQuestion: question => this.requestApproval(question),
 		});
 		await this.approvalBroker.start();
+		this.planReviewBroker ??= new PlanReviewBroker({
+			onQuestion: question => this.requestPlanReview(question),
+		});
+		await this.planReviewBroker.start();
 		const runner = new HarnessRunner({
 			cwd: this.workspaceRoot(),
 			dshHome: vscode.Uri.joinPath(this.storageUri, 'dsh-home').fsPath,
@@ -1902,6 +1975,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			).fsPath,
 			runtimePath: runtime.executablePath,
 			approvalSocketPath: this.approvalBroker.socketPath,
+			planReviewSocketPath: this.planReviewBroker.socketPath,
 			modelSelection: () => ({ ...this.modelSelection }),
 		});
 		this.runner = runner;
@@ -2061,13 +2135,15 @@ function scheduleRefresh(
 let activeProvider: ChatViewProvider | undefined;
 
 // This method is called when your extension is activated
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	console.log('Congratulations, your extension "seekdock" is now active!');
 
+	// Durable data lives outside the extension storage, which VS Code deletes on uninstall.
+	const dataRoot = await resolveDataRoot({ overridePath: process.env[DATA_ROOT_ENV] });
 	const provider = new ChatViewProvider(
 		context.extensionUri,
 		context.secrets,
-		context.globalStorageUri,
+		vscode.Uri.file(dataRoot),
 		context.globalState,
 	);
 	activeProvider = provider;
@@ -2118,6 +2194,7 @@ export function activate(context: vscode.ExtensionContext) {
 			chatViewResolved: provider.resolved,
 			settingsPanelResolved: provider.settingsResolved,
 			openPath,
+			dataRoot,
 		})
 	));
 }

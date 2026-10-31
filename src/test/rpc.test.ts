@@ -158,6 +158,38 @@ suite('RPC contract', () => {
 			approvalId: 'approval-1',
 			decision: 'maybe',
 		}));
+		assert.ok(isWebviewToHostMessage({
+			type: 'planReviewResponse',
+			requestId: 'request-11',
+			reviewId: 'plan-review:session-1:call-1',
+			decision: 'keep-planning',
+			feedback: 'Add tests first',
+		}));
+		assert.ok(isWebviewToHostMessage({
+			type: 'planReviewResponse',
+			requestId: 'request-11',
+			reviewId: 'plan-review:session-1:call-1',
+			decision: 'approve',
+		}));
+		assert.ok(!isWebviewToHostMessage({
+			type: 'planReviewResponse',
+			requestId: 'request-11',
+			reviewId: '',
+			decision: 'approve',
+		}));
+		assert.ok(!isWebviewToHostMessage({
+			type: 'planReviewResponse',
+			requestId: 'request-11',
+			reviewId: 'plan-review:session-1:call-1',
+			decision: 'reject',
+		}));
+		assert.ok(!isWebviewToHostMessage({
+			type: 'planReviewResponse',
+			requestId: 'request-11',
+			reviewId: 'plan-review:session-1:call-1',
+			decision: 'approve',
+			feedback: 5,
+		}));
 	});
 
 	test('accepts API key errors and the typed response event stream', () => {
@@ -390,6 +422,19 @@ suite('RPC contract', () => {
 				decision: 'allowed',
 			},
 			{
+				type: 'planReviewRequest',
+				requestId: 'request-1',
+				review: {
+					id: 'plan-review:session-1:call-1',
+					plan: '# Plan',
+				},
+			},
+			{
+				type: 'planReviewResolved',
+				reviewId: 'plan-review:session-1:call-1',
+				decision: 'approved',
+			},
+			{
 				type: 'permissionState',
 				catalog: {
 					options: [
@@ -452,6 +497,19 @@ suite('RPC contract', () => {
 			type: 'approvalResolved',
 			approvalId: 'approval-1',
 			decision: 'granted',
+		}));
+		assert.ok(!isHostToWebviewMessage({
+			type: 'planReviewRequest',
+			requestId: 'request-1',
+			review: {
+				id: 'plan-review:session-1:call-1',
+				plan: 5,
+			},
+		}));
+		assert.ok(!isHostToWebviewMessage({
+			type: 'planReviewResolved',
+			reviewId: 'plan-review:session-1:call-1',
+			decision: 'rejected',
 		}));
 		assert.ok(isHostToWebviewMessage({
 			type: 'responseEnd',

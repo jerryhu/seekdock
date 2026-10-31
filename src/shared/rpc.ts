@@ -63,6 +63,21 @@ export interface Approval {
 	decision?: ApprovalDecision;
 }
 
+/** Closed outcome of a plan review card shared with the UI. */
+export type PlanReviewDecision = 'approved' | 'keep-planning' | 'cancelled' | 'unavailable';
+
+/** The two answers SeekDock offers for a plan under review. */
+export type PlanReviewAnswer = 'approve' | 'keep-planning';
+
+/** One plan that DSH's exit_plan_mode tool submitted for review. */
+export interface PlanReview {
+	id: string;
+	/** Plan markdown under review. */
+	plan: string;
+	/** Set once the review has a closed outcome. */
+	decision?: PlanReviewDecision;
+}
+
 /** One selectable permission preset. */
 export interface PermissionOption {
 	value: string;
@@ -152,6 +167,13 @@ export type WebviewToHostMessage =
 		approvalId: string;
 		toolCallId?: string;
 		decision: ApprovalAnswer;
+	}
+	| {
+		type: 'planReviewResponse';
+		requestId: string;
+		reviewId: string;
+		decision: PlanReviewAnswer;
+		feedback?: string;
 	}
 	| {
 		type: 'requestWorkspaceFileDiff';
@@ -248,6 +270,8 @@ export type HostToWebviewMessage =
 		toolCallId?: string;
 		decision: ApprovalDecision;
 	}
+	| { type: 'planReviewRequest'; requestId: string; review: PlanReview }
+	| { type: 'planReviewResolved'; reviewId: string; decision: PlanReviewDecision }
 	| {
 		type: 'permissionState';
 		catalog: PermissionCatalog | null;
@@ -350,6 +374,11 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHostMe
 				&& isNonEmptyString(value.approvalId)
 				&& (value.toolCallId === undefined || isNonEmptyString(value.toolCallId))
 				&& (value.decision === 'allow' || value.decision === 'deny');
+		case 'planReviewResponse':
+			return isNonEmptyString(value.requestId)
+				&& isNonEmptyString(value.reviewId)
+				&& (value.decision === 'approve' || value.decision === 'keep-planning')
+				&& (value.feedback === undefined || typeof value.feedback === 'string');
 		case 'requestWorkspaceFileDiff':
 		case 'openWorkspaceFileDiff':
 			return isNonEmptyString(value.requestId)
@@ -452,6 +481,10 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebviewMe
 			return isNonEmptyString(value.approvalId)
 				&& (value.toolCallId === undefined || isNonEmptyString(value.toolCallId))
 				&& isApprovalDecision(value.decision);
+		case 'planReviewRequest':
+			return isNonEmptyString(value.requestId) && isPlanReview(value.review);
+		case 'planReviewResolved':
+			return isNonEmptyString(value.reviewId) && isPlanReviewDecision(value.decision);
 		case 'permissionState':
 			return (value.catalog === null || isPermissionCatalog(value.catalog))
 				&& (value.current === undefined || isNonEmptyString(value.current))
@@ -591,6 +624,22 @@ function isApproval(value: unknown): value is Approval {
 export function isApprovalDecision(value: unknown): value is ApprovalDecision {
 	return value === 'allowed'
 		|| value === 'rejected'
+		|| value === 'cancelled'
+		|| value === 'unavailable';
+}
+
+function isPlanReview(value: unknown): value is PlanReview {
+	if (!isRecord(value)) {
+		return false;
+	}
+	return isNonEmptyString(value.id)
+		&& typeof value.plan === 'string'
+		&& (value.decision === undefined || isPlanReviewDecision(value.decision));
+}
+
+function isPlanReviewDecision(value: unknown): value is PlanReviewDecision {
+	return value === 'approved'
+		|| value === 'keep-planning'
 		|| value === 'cancelled'
 		|| value === 'unavailable';
 }

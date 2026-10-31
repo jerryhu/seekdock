@@ -21,8 +21,8 @@
       - !!js process.env.SEEKDOCK_USER_SKILL_DIR
 
 # The standard SDK wire carries durable session events only. These bridges add
-# process-local assistant frames, the private stop control, and the permission
-# and approval round trips used by the composer UI.
+# process-local assistant frames, the private stop control, and the permission,
+# approval, and plan-review round trips used by the composer UI.
 - insert:
     - id: seekdock-cancel-bridge
       name: ./seekdock-cancel-bridge.mjs
@@ -36,6 +36,8 @@
       name: ./seekdock-permission-bridge.mjs
     - id: seekdock-plan-bridge
       name: ./seekdock-plan-bridge.mjs
+    - id: seekdock-plan-review-bridge
+      name: ./seekdock-plan-review-bridge.mjs
     - id: seekdock-skill-bridge
       name: ./seekdock-skill-bridge.mjs
     - id: seekdock-session-title-bridge

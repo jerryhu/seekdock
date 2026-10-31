@@ -18,8 +18,19 @@ DeepSeek Harness，配置 DeepSeek API Key 后即可使用。
 - **兼容锁定**：使用官方完整 SDK profile（`dsh-base + sdk-app`），并附加实时助手流和
   提示词注入补丁；SDK 与 Python runtime 精确锁定，兼容矩阵记录在 `package.json` 的
   `dshCompatibility` 字段中。
-- **会话恢复**：会话日志由 DSH 的 JSONL persistence 管理，位于扩展全局存储目录下的
+- **会话恢复**：会话日志由 DSH 的 JSONL persistence 管理，位于 SeekDock 数据目录下的
   `dsh-home/sessions/`；SeekDock 只读历史并通过 `session/resume` 恢复，不另建会话数据库。
+
+## 数据存放位置
+
+所有持久数据都在 `~/.seekdock`（Windows 为 `%USERPROFILE%\.seekdock`）：`dsh-home/`（会话日志与
+DSH profile）、`workspace-change-history/`、`mcp/` 以及 `active-system-prompt.md`；设置
+`SEEKDOCK_DATA_HOME` 可以改位置。
+
+数据目录刻意放在 VS Code 的扩展存储之外：VS Code 卸载扩展时会删除
+`User/globalStorage/<扩展 id>`，会话会随之消失。0.1.x 及更早版本把数据存在那里，SeekDock 不会
+自动搬运；需要旧历史时请把该目录手动拷贝到 `~/.seekdock`。覆盖安装
+（`code --install-extension <file>.vsix --force`）不会影响任何一个位置。
 
 ## 开发与打包
 
@@ -103,7 +114,7 @@ SeekDock 仅读取当前项目根目录的 `.agents/skills` 和用户主目录�
 不会回传到 Webview；提示词保存在 `ExtensionContext.globalState`，默认文本来自
 `resources/default-system-prompt.md`。
 
-启动 DSH runtime 前，扩展会把当前生效提示词同步到全局存储目录，并通过
+启动 DSH runtime 前，扩展会把当前生效提示词同步到数据目录，并通过
 `SEEKDOCK_SYSTEM_PROMPT_PATH` 传给
 `resources/dsh/seekdock-system-prompt.mjs`。该插件通过 DSH
 `ctx.systemPrompt.section()` 注册 persona 前置段，工具执行和系统提示组装仍由
@@ -112,7 +123,7 @@ DeepSeek Harness 负责。
 ### MCP 服务器
 
 设置页新增 MCP 服务器页签，运行时由 `@deepseek-ai/dsh-mcp-client` 提供。服务器声明保存在
-`<globalStorageUri>/mcp/servers.json`；设置变化后会重新生成 DSH 补丁，并在下次使用 runtime
+`<dataRoot>/mcp/servers.json`；设置变化后会重新生成 DSH 补丁，并在下次使用 runtime
 时重启加载。stdio 服务器的工作目录默认使用工作区根目录，仅支持 `stdio` 和 DSH 的
 Streamable HTTP 传输。
 

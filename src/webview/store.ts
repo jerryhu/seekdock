@@ -4,6 +4,8 @@ import type {
 	AssistantContentBlock,
 	AssistantStreamDelta,
 	HostToWebviewMessage,
+	PlanReview,
+	PlanReviewDecision,
 	ToolCall,
 	TranscriptMessage,
 } from '../shared/rpc.ts';
@@ -22,7 +24,8 @@ export type AssistantEntry =
 	| { kind: 'text'; id: string; text: string }
 	| { kind: 'reasoning'; id: string; text: string }
 	| { kind: 'tool'; id: string; call: ToolCall }
-	| { kind: 'approval'; id: string; approval: Approval };
+	| { kind: 'approval'; id: string; approval: Approval }
+	| { kind: 'plan-review'; id: string; review: PlanReview };
 
 export interface AssistantLiveBlock {
 	blockIndex: number;
@@ -162,6 +165,12 @@ export class ConversationStore {
 				break;
 			case 'approvalResolved':
 				this.resolveApproval(message.approvalId, message.toolCallId, message.decision);
+				break;
+			case 'planReviewRequest':
+				this.addPlanReview(message.requestId, message.review);
+				break;
+			case 'planReviewResolved':
+				this.resolvePlanReview(message.reviewId, message.decision);
 				break;
 			case 'workspaceChanges':
 				this.touchAssistant(message.requestId, assistant => ({
@@ -416,6 +425,61 @@ export class ConversationStore {
 				}
 				changed = true;
 				return { ...entry, approval: { ...entry.approval, decision } };
+			});
+			if (!changed) {
+				continue;
+			}
+			this.messages.set(id, { ...message, entries });
+			this.notifyMessage(id);
+		}
+	}
+
+	private addPlanReview(requestId: string, review: PlanReview): void {
+		this.touchAssistant(requestId, (message) => {
+			const entries = [...message.entries];
+			// A retried step can ask again for the same call; keep one card and let
+			// the latest request fill it.
+			const existingIndex = entries.findIndex(
+				entry => entry.kind === 'plan-review' && entry.review.id === review.id,
+			);
+			if (existingIndex === -1) {
+				entries.push({
+					kind: 'plan-review',
+					id: this.entryId(`plan-review-${review.id}`),
+					review,
+				});
+			} else {
+				const entry = entries[existingIndex];
+				if (entry.kind === 'plan-review') {
+					entries[existingIndex] = {
+						...entry,
+						review: {
+							...entry.review,
+							...review,
+							id: entry.review.id,
+							decision: entry.review.decision ?? review.decision,
+						},
+					};
+				}
+			}
+			return { ...message, entries };
+		});
+	}
+
+	/** Mark one plan review card with the outcome the host committed. */
+	private resolvePlanReview(reviewId: string, decision: PlanReviewDecision): void {
+		for (const id of this.assistantByRequest.values()) {
+			const message = this.messages.get(id);
+			if (message?.kind !== 'assistant') {
+				continue;
+			}
+			let changed = false;
+			const entries = message.entries.map((entry) => {
+				if (entry.kind !== 'plan-review' || entry.review.id !== reviewId) {
+					return entry;
+				}
+				changed = true;
+				return { ...entry, review: { ...entry.review, decision } };
 			});
 			if (!changed) {
 				continue;

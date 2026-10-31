@@ -28,6 +28,7 @@ interface Diagnostics {
 	chatViewResolved?: boolean;
 	settingsPanelResolved?: boolean;
 	openPath?: 'none' | 'focusView' | 'containerFallback';
+	dataRoot?: string;
 }
 
 /** Reads the state of the running extension instance (the module imported here is not the instance loaded by the host). */
@@ -56,6 +57,22 @@ suite('Extension Test Suite', () => {
 		assert.ok(extension, 'seekdock extension not found; make sure it is loaded as a development extension');
 		await extension.activate();
 		assert.ok(extension.isActive, 'extension failed to activate');
+	});
+
+	test('keeps durable data outside the extension storage directory', async () => {
+		const expected = process.env.SEEKDOCK_DATA_HOME;
+		assert.ok(expected, 'the test host does not set SEEKDOCK_DATA_HOME; check .vscode-test.mjs');
+
+		const diagnostics = await readDiagnostics();
+		assert.strictEqual(
+			diagnostics.dataRoot,
+			expected,
+			'the extension did not use the configured data root',
+		);
+		assert.ok(
+			!diagnostics.dataRoot?.includes('globalStorage'),
+			'durable data is still stored inside the extension storage, which VS Code deletes on uninstall',
+		);
 	});
 
 	test('sidebar view and container command are registered', async () => {

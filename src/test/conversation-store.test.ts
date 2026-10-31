@@ -263,6 +263,47 @@ suite('Conversation store', () => {
 		assert.strictEqual(resolvedApproval.approval.decision, 'allowed');
 	});
 
+	test('adds one plan review card and records its outcome', () => {
+		const store = new ConversationStore();
+		store.beginRequest('request-1', 'plan it');
+		store.handleHostMessage({
+			type: 'planReviewRequest',
+			requestId: 'request-1',
+			review: {
+				id: 'plan-review:session-1:call-1',
+				plan: '# Plan',
+			},
+		});
+		store.handleHostMessage({
+			type: 'planReviewRequest',
+			requestId: 'request-1',
+			review: {
+				id: 'plan-review:session-1:call-1',
+				plan: '# Plan',
+			},
+		});
+
+		const message = store.getMessage('request-1:assistant');
+		assert.ok(message?.kind === 'assistant');
+		assert.strictEqual(message.entries.filter(entry => entry.kind === 'plan-review').length, 1);
+		const review = message.entries.find(entry => entry.kind === 'plan-review');
+		assert.ok(review?.kind === 'plan-review');
+		assert.strictEqual(review.review.plan, '# Plan');
+		assert.strictEqual(review.review.decision, undefined);
+
+		store.handleHostMessage({
+			type: 'planReviewResolved',
+			reviewId: 'plan-review:session-1:call-1',
+			decision: 'keep-planning',
+		});
+
+		const resolved = store.getMessage('request-1:assistant');
+		assert.ok(resolved?.kind === 'assistant');
+		const resolvedReview = resolved.entries.find(entry => entry.kind === 'plan-review');
+		assert.ok(resolvedReview?.kind === 'plan-review');
+		assert.strictEqual(resolvedReview.review.decision, 'keep-planning');
+	});
+
 	test('loads a persisted transcript as completed chat messages', () => {
 		const store = new ConversationStore();
 		store.beginRequest('request-1', 'old prompt');

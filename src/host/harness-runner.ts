@@ -37,6 +37,8 @@ interface HarnessRunnerOptions {
 	runtimePath: string;
 	/** Socket the runtime's approval bridge connects to. */
 	approvalSocketPath: string;
+	/** Socket the runtime's plan-review bridge connects to. */
+	planReviewSocketPath: string;
 	/** Current composer model route, read whenever a runtime is created. */
 	modelSelection: () => ModelSelection;
 }
@@ -577,6 +579,7 @@ export class HarnessRunner {
 				HOME: this.options.homePath,
 				SEEKDOCK_CANCEL_SOCKET: this.cancelSocketPath,
 				SEEKDOCK_APPROVAL_SOCKET: this.options.approvalSocketPath,
+				SEEKDOCK_PLAN_REVIEW_SOCKET: this.options.planReviewSocketPath,
 				SEEKDOCK_DSH_RUNTIME: this.options.runtimePath,
 				SEEKDOCK_PERMISSION_SOCKET: this.permissionSocketPath,
 				SEEKDOCK_PLAN_SOCKET: this.planSocketPath,

@@ -20,11 +20,17 @@ import {
 	type MessageId,
 } from './store.ts';
 import { ApprovalView, ToolCallView } from './tool-call.tsx';
+import { PlanReviewView } from './plan-review.tsx';
 import { copyText } from './copy.ts';
 import { formatMessageClock } from './message-clock.ts';
 import { processRowsVisible } from './process-disclosure.ts';
 import { reasoningSummary } from './reasoning-summary.ts';
-import type { Approval, ApprovalAnswer } from '../shared/rpc.ts';
+import type {
+	Approval,
+	ApprovalAnswer,
+	PlanReview,
+	PlanReviewAnswer,
+} from '../shared/rpc.ts';
 import type {
 	WorkspaceChangeSet,
 	WorkspaceFileDiff,
@@ -38,6 +44,11 @@ interface MessageListProps {
 	store: ConversationStore;
 	onOpenLink: (url: string) => void;
 	onApprovalAnswer: (approval: Approval, decision: ApprovalAnswer) => void;
+	onPlanReviewAnswer: (
+		review: PlanReview,
+		decision: PlanReviewAnswer,
+		feedback: string,
+	) => void;
 	onRequestWorkspaceDiff: (
 		changes: WorkspaceChangeSet,
 		index: number,
@@ -56,6 +67,7 @@ export function MessageList({
 	store,
 	onOpenLink,
 	onApprovalAnswer,
+	onPlanReviewAnswer,
 	onRequestWorkspaceDiff,
 	onOpenWorkspaceDiff,
 }: MessageListProps): JSX.Element {
@@ -149,6 +161,7 @@ export function MessageList({
 								store={store}
 								onOpenLink={onOpenLink}
 								onApprovalAnswer={onApprovalAnswer}
+								onPlanReviewAnswer={onPlanReviewAnswer}
 								onRequestWorkspaceDiff={onRequestWorkspaceDiff}
 								onOpenWorkspaceDiff={onOpenWorkspaceDiff}
 							/>
@@ -172,6 +185,7 @@ function MessageRow({
 	store,
 	onOpenLink,
 	onApprovalAnswer,
+	onPlanReviewAnswer,
 	onRequestWorkspaceDiff,
 	onOpenWorkspaceDiff,
 }: {
@@ -179,6 +193,7 @@ function MessageRow({
 	store: ConversationStore;
 	onOpenLink: (url: string) => void;
 	onApprovalAnswer: (approval: Approval, decision: ApprovalAnswer) => void;
+	onPlanReviewAnswer: MessageListProps['onPlanReviewAnswer'];
 	onRequestWorkspaceDiff: MessageListProps['onRequestWorkspaceDiff'];
 	onOpenWorkspaceDiff: MessageListProps['onOpenWorkspaceDiff'];
 }): JSX.Element | null {
@@ -193,6 +208,7 @@ function MessageRow({
 				message={message}
 				onOpenLink={onOpenLink}
 				onApprovalAnswer={onApprovalAnswer}
+				onPlanReviewAnswer={onPlanReviewAnswer}
 				onRequestWorkspaceDiff={onRequestWorkspaceDiff}
 				onOpenWorkspaceDiff={onOpenWorkspaceDiff}
 			/>
@@ -220,12 +236,14 @@ function AssistantMessageView({
 	message,
 	onOpenLink,
 	onApprovalAnswer,
+	onPlanReviewAnswer,
 	onRequestWorkspaceDiff,
 	onOpenWorkspaceDiff,
 }: {
 	message: AssistantMessage;
 	onOpenLink: (url: string) => void;
 	onApprovalAnswer: (approval: Approval, decision: ApprovalAnswer) => void;
+	onPlanReviewAnswer: MessageListProps['onPlanReviewAnswer'];
 	onRequestWorkspaceDiff: MessageListProps['onRequestWorkspaceDiff'];
 	onOpenWorkspaceDiff: MessageListProps['onOpenWorkspaceDiff'];
 }): JSX.Element {
@@ -315,6 +333,19 @@ function AssistantMessageView({
 									key={entry.id}
 									approval={entry.approval}
 									onAnswer={decision => onApprovalAnswer(entry.approval, decision)}
+								/>
+							);
+						case 'plan-review':
+							return (
+								<PlanReviewView
+									key={entry.id}
+									review={entry.review}
+									onOpenLink={onOpenLink}
+									onAnswer={(decision, feedback) => onPlanReviewAnswer(
+										entry.review,
+										decision,
+										feedback,
+									)}
 								/>
 							);
 					}

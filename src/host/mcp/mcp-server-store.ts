@@ -68,11 +68,11 @@ export class McpServerStore {
 	private operation: Promise<void> = Promise.resolve();
 
 	constructor(
-		globalStoragePath: string,
+		dataRootPath: string,
 		private readonly getWorkspaceRoot: () => string,
 		private readonly getHomePath: () => string = homedir,
 	) {
-		const directory = join(globalStoragePath, 'mcp');
+		const directory = join(dataRootPath, 'mcp');
 		this.serversPath = join(directory, 'servers.json');
 		this.patchPath = join(directory, 'dsh.patch.yml');
 	}

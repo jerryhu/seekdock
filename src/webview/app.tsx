@@ -16,6 +16,8 @@ import {
 	type ComposerFile,
 	type HostToWebviewMessage,
 	type PermissionCatalog,
+	type PlanReview,
+	type PlanReviewAnswer,
 	type RuntimeStatus,
 	type SessionSummary,
 } from '../shared/rpc.ts';
@@ -580,6 +582,20 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 		});
 	};
 
+	const answerPlanReview = (
+		review: PlanReview,
+		decision: PlanReviewAnswer,
+		feedback: string,
+	): void => {
+		vscode.postMessage({
+			type: 'planReviewResponse',
+			requestId: crypto.randomUUID(),
+			reviewId: review.id,
+			decision,
+			...(feedback.length === 0 ? {} : { feedback }),
+		});
+	};
+
 	const requestWorkspaceDiff = (
 		changes: WorkspaceChangeSet,
 		index: number,
@@ -880,6 +896,7 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 						store={store}
 						onOpenLink={openLink}
 						onApprovalAnswer={answerApproval}
+						onPlanReviewAnswer={answerPlanReview}
 						onRequestWorkspaceDiff={requestWorkspaceDiff}
 						onOpenWorkspaceDiff={openWorkspaceDiff}
 					/>

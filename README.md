@@ -14,7 +14,13 @@
 - **Ready to use out of the box:** Each platform-specific VSIX bundles the DeepSeek Harness runtime for its target platform. Users do not need to separately install, download, or launch DeepSeek Harness.
 - **Platform support:** Linux x64/arm64, macOS x64/arm64, and Windows x64.
 - **Pinned compatibility:** Uses the official full SDK profile (`dsh-base + sdk-app`), with additional patches for live assistant streaming and prompt injection. The SDK and Python runtime versions are pinned precisely. The compatibility matrix is recorded in the `dshCompatibility` field in `package.json`.
-- **Session recovery:** DSH manages session logs through JSONL persistence under `dsh-home/sessions/` in the extension's global storage directory. SeekDock reads the history and resumes sessions through `session/resume`; it does not create a separate session database.
+- **Session recovery:** DSH manages session logs through JSONL persistence under `dsh-home/sessions/` in SeekDock's data directory. SeekDock reads the history and resumes sessions through `session/resume`; it does not create a separate session database.
+
+## Where SeekDock keeps its data
+
+All durable data lives in `~/.seekdock` (`%USERPROFILE%\.seekdock` on Windows): `dsh-home/` (session logs and the DSH profile), `workspace-change-history/`, `mcp/`, and `active-system-prompt.md`. Set `SEEKDOCK_DATA_HOME` to relocate it.
+
+The data directory sits outside VS Code's per-extension storage on purpose: VS Code removes `User/globalStorage/<extension id>` when an extension is uninstalled, which would delete every session. Builds up to 0.1.x kept their data there; SeekDock does not copy it automatically, so a history from those versions stays in that folder — copy it into `~/.seekdock` if you want to keep it. Upgrading by installing the new VSIX over the old one (`code --install-extension <file>.vsix --force`) never touches either location.
 
 ## Development and Packaging
 
@@ -81,10 +87,10 @@ SeekDock reads skills only from `.agents/skills` in the current workspace root a
 
 The settings page is displayed within the chat Webview and uses sidebar category navigation. The API key is stored using VS Code `SecretStorage` and is never sent back to the Webview. Prompts are stored in `ExtensionContext.globalState`, and the default prompt text comes from `resources/default-system-prompt.md`.
 
-Before starting the DSH runtime, the extension syncs the currently active prompt to the global storage directory and passes its path through `SEEKDOCK_SYSTEM_PROMPT_PATH` to `resources/dsh/seekdock-system-prompt.mjs`. This plugin registers a persona preamble using DSH's `ctx.systemPrompt.section()`. Tool execution and system-prompt assembly remain the responsibility of DeepSeek Harness.
+Before starting the DSH runtime, the extension syncs the currently active prompt to the data directory and passes its path through `SEEKDOCK_SYSTEM_PROMPT_PATH` to `resources/dsh/seekdock-system-prompt.mjs`. This plugin registers a persona preamble using DSH's `ctx.systemPrompt.section()`. Tool execution and system-prompt assembly remain the responsibility of DeepSeek Harness.
 
 ### MCP servers
 
-The settings page includes an MCP servers tab backed by `@deepseek-ai/dsh-mcp-client`. Server declarations are stored at `<globalStorageUri>/mcp/servers.json`; each settings change regenerates a DSH patch and restarts the runtime on its next use. Stdio servers default their working directory to the workspace root. Only `stdio` and DSH's Streamable HTTP transport are supported.
+The settings page includes an MCP servers tab backed by `@deepseek-ai/dsh-mcp-client`. Server declarations are stored at `<dataRoot>/mcp/servers.json`; each settings change regenerates a DSH patch and restarts the runtime on its next use. Stdio servers default their working directory to the workspace root. Only `stdio` and DSH's Streamable HTTP transport are supported.
 
 `${secret:name}` values are kept in VS Code `SecretStorage` and injected into the runtime process environment, while `${workspaceFolder}` resolves to the active workspace root. Any other `${...}` variable is rejected. The import dialog reads `.vscode/mcp.json`, `~/.codex/config.toml`, `~/.claude.json`, and `~/.cursor/mcp.json` without modifying them. Imported names that do not match DSH's server-name contract are normalized with the same slug-and-hash strategy as DSH ACP, and both names are shown in the UI. SSE declarations are reported as unsupported.

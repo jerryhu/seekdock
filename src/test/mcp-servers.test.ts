@@ -168,7 +168,7 @@ command = "node"
 		assert.strictEqual(parsed.servers[0]?.originalName, 'local');
 	});
 
-	test('persists servers in globalStorage and keeps secret values out of the runtime patch', async () => {
+	test('persists servers in the data directory and keeps secret values out of the runtime patch', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'seekdock-mcp-'));
 		try {
 			const store = new McpServerStore(root, () => '/workspace/project', () => '/home/test');

@@ -712,11 +712,10 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 		vscode.postMessage({ type: 'newChat', requestId: crypto.randomUUID() });
 	};
 
-	const returnToHomeFromHistory = (): void => {
-		if (ui.busy) {
-			return;
-		}
-		startNewChat();
+	// Leaving the history page is Webview-local on purpose: while a turn runs the
+	// Host rejects every session request, and a navigation must never wait for it.
+	const backToChat = (): void => {
+		setView('chat');
 	};
 
 	const returnFromSession = (): void => {
@@ -762,7 +761,8 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 				activeSessionId={history.activeSessionId}
 				loading={history.loading}
 				error={history.error}
-					onBack={returnToHomeFromHistory}
+				busy={ui.busy}
+				onBack={backToChat}
 				onDelete={deleteSession}
 				onRefresh={refreshHistory}
 				onSelect={(sessionId) => selectSession(sessionId, 'history')}

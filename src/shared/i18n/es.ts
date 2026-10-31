@@ -15,6 +15,7 @@ export const es = {
 	loadingSessions: 'Cargando sesiones…',
 	noSessions: 'Aún no hay sesiones',
 	viewAllSessions: 'Ver todas ({count})',
+	historyBusyHint: 'Hay una respuesta en curso. Podrás cambiar, renombrar o eliminar sesiones cuando termine.',
 	messageCount: '{count} mensajes',
 	currentSession: 'Sesión actual',
 	sessionActions: 'Acciones de la sesión',

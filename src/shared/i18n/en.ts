@@ -13,6 +13,7 @@ export const en = {
 	loadingSessions: 'Loading sessions…',
 	noSessions: 'No sessions yet',
 	viewAllSessions: 'View all ({count})',
+	historyBusyHint: 'A response is running. Switching, renaming, and deleting sessions become available when it finishes.',
 	messageCount: '{count} messages',
 	currentSession: 'Current session',
 	sessionActions: 'Session actions',

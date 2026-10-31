@@ -477,6 +477,23 @@ a:hover {
 	border-bottom: 1px solid var(--seek-border);
 }
 
+.session-busy-banner {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	padding: 7px 12px;
+	font-size: 11px;
+	line-height: 1.45;
+	color: var(--seek-muted);
+	background: var(--seek-surface-raised);
+	border-bottom: 1px solid var(--seek-border);
+}
+
+.session-busy-banner svg {
+	flex: none;
+}
+
 .runtime-gate {
 	display: flex;
 	flex-direction: column;

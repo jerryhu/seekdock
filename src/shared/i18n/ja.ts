@@ -15,6 +15,7 @@ export const ja = {
 	loadingSessions: 'セッションを読み込み中…',
 	noSessions: 'セッションはまだありません',
 	viewAllSessions: 'すべて表示（{count}）',
+	historyBusyHint: '回答を生成中です。終了後にセッションの切り替え・名前の変更・削除ができます。',
 	messageCount: '{count} 件のメッセージ',
 	currentSession: '現在のセッション',
 	sessionActions: 'セッション操作',

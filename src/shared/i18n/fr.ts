@@ -15,6 +15,7 @@ export const fr = {
 	loadingSessions: 'Chargement des sessions…',
 	noSessions: 'Aucune session pour le moment',
 	viewAllSessions: 'Tout afficher ({count})',
+	historyBusyHint: 'Une réponse est en cours. Le changement, le renommage et la suppression de sessions seront possibles à la fin.',
 	messageCount: '{count} messages',
 	currentSession: 'Session actuelle',
 	sessionActions: 'Actions de la session',

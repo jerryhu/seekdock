@@ -15,6 +15,7 @@ export const zhTw = {
 	loadingSessions: '正在載入工作階段…',
 	noSessions: '尚無工作階段',
 	viewAllSessions: '查看全部（{count} 個）',
+	historyBusyHint: '目前回答進行中，結束後才能切換、重新命名或刪除工作階段。',
 	messageCount: '{count} 則訊息',
 	currentSession: '目前工作階段',
 	sessionActions: '工作階段操作',

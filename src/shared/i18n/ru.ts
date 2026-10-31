@@ -15,6 +15,7 @@ export const ru = {
 	loadingSessions: 'Загрузка сеансов…',
 	noSessions: 'Сеансов пока нет',
 	viewAllSessions: 'Показать все ({count})',
+	historyBusyHint: 'Идёт ответ. Переключение, переименование и удаление сеансов станут доступны после его завершения.',
 	messageCount: 'Сообщений: {count}',
 	currentSession: 'Текущий сеанс',
 	sessionActions: 'Действия с сеансом',

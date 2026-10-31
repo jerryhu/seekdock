@@ -15,6 +15,7 @@ export const ko = {
 	loadingSessions: '세션을 불러오는 중…',
 	noSessions: '아직 세션이 없습니다',
 	viewAllSessions: '모두 보기({count})',
+	historyBusyHint: '현재 응답이 진행 중입니다. 완료된 후 세션을 전환하거나 이름을 바꾸거나 삭제할 수 있습니다.',
 	messageCount: '메시지 {count}개',
 	currentSession: '현재 세션',
 	sessionActions: '세션 작업',

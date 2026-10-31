@@ -15,6 +15,7 @@ export const zhCn = {
 	loadingSessions: '正在加载会话…',
 	noSessions: '暂无会话',
 	viewAllSessions: '查看全部（{count}个）',
+	historyBusyHint: '当前回答进行中，结束后才能切换、重命名或删除会话。',
 	messageCount: '{count} 条消息',
 	currentSession: '当前会话',
 	sessionActions: '会话操作',

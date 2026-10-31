@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import {
 	ArrowLeft,
+	CircleAlert,
 	History,
 	LoaderCircle,
 	MessageSquare,
@@ -81,6 +82,9 @@ interface SessionHistoryPageProps {
 	activeSessionId: string | undefined;
 	loading: boolean;
 	error: string | undefined;
+	// A running turn keeps DSH's live session; the Host refuses session requests
+	// until it ends, so the page states that instead of failing silently.
+	busy: boolean;
 	onBack: () => void;
 	onDelete: (sessionId: string) => void;
 	onRefresh: () => void;
@@ -94,6 +98,7 @@ export function SessionHistoryPage({
 	activeSessionId,
 	loading,
 	error,
+	busy,
 	onBack,
 	onDelete,
 	onRefresh,
@@ -132,6 +137,14 @@ export function SessionHistoryPage({
 					<RefreshCw size={14} className={loading ? 'spin' : undefined} />
 				</button>
 			</header>
+			{busy
+				? (
+					<div className="session-busy-banner" role="status">
+						<CircleAlert size={13} />
+						<span>{t('historyBusyHint')}</span>
+					</div>
+				)
+				: null}
 			<div className="history-page-content">
 				{error !== undefined
 					? <p className="session-empty error" role="alert">{error}</p>

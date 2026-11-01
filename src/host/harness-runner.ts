@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client';
+import { DeepSeekHarness, RequestTimeoutError } from '@deepseek-ai/dsh-sdk-client';
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import {
 	sameModelSelection,
@@ -22,6 +22,19 @@ import {
 	HarnessEventTranslator,
 	type HarnessActivityEvent,
 } from './harness-events.ts';
+
+/** Budget for one `initialize` handshake, measured from runtime spawn. */
+const INITIALIZE_TIMEOUT_MS = 30_000;
+
+/**
+ * Handshake attempts before the runtime is reported as unreachable. The
+ * packaged runtime is a large native executable, so a cold start has to page
+ * in its binary while the rest of the editor is still settling. When that
+ * startup loses the race the SDK reports a request timeout although the
+ * process is healthy; it also reaps the failed runtime and installs a fresh
+ * client, so one retry boots a second process with a warm page cache.
+ */
+const START_ATTEMPTS = 2;
 
 interface HarnessRunnerOptions {
 	cwd: string;
@@ -235,7 +248,7 @@ export class HarnessRunner {
 		}
 		try {
 			const harness = await this.ensureHarness(apiKey);
-			await harness.start();
+			await startHarness(harness);
 		} catch (error) {
 			try {
 				await this.reset();
@@ -592,7 +605,7 @@ export class HarnessRunner {
 				...this.options.mcpEnv,
 				USERPROFILE: this.options.homePath,
 			},
-			initializeTimeoutMs: 30_000,
+			initializeTimeoutMs: INITIALIZE_TIMEOUT_MS,
 			patches: [this.options.patchPath, this.options.mcpPatchPath],
 			profile: 'sdk',
 			provider: 'deepseek-official',
@@ -613,7 +626,7 @@ export class HarnessRunner {
 		if (this.liveSessions.has(sessionId)) {
 			return;
 		}
-		await harness.start();
+		await startHarness(harness);
 		if (!resume) {
 			// Working-directory access creates an unknown session without
 			// starting a model turn, which lets the picker switch its preset
@@ -648,6 +661,39 @@ export class HarnessRunner {
 /** Create the id used for a new SeekDock conversation. */
 export function createSessionId(): string {
 	return `seekdock-${randomUUID()}`;
+}
+
+/** The subset of the SDK harness whose runtime lifecycle SeekDock drives. */
+interface HarnessStarter {
+	start(): Promise<void>;
+}
+
+/**
+ * Initialize the runtime, retrying once when the handshake times out.
+ *
+ * Only a timeout is retried: it is the one failure a healthy runtime reports
+ * when the process was merely slower to boot than the handshake budget. A
+ * crashed or unlaunchable runtime rejects differently and would only repeat.
+ *
+ * @param harness - harness whose runtime should complete its handshake.
+ * @returns after the runtime profile and model route are ready.
+ */
+export async function startHarness(harness: HarnessStarter): Promise<void> {
+	for (let attempt = 1; ; attempt += 1) {
+		try {
+			await harness.start();
+			return;
+		} catch (error) {
+			if (attempt >= START_ATTEMPTS || !(error instanceof RequestTimeoutError)) {
+				throw error;
+			}
+			console.warn(
+				`SeekDock: DeepSeek Harness did not finish initializing in `
+				+ `${INITIALIZE_TIMEOUT_MS}ms; retrying with a fresh runtime `
+				+ `(attempt ${attempt + 1} of ${START_ATTEMPTS})`,
+			);
+		}
+	}
 }
 
 function isAlreadyOpenError(error: unknown): boolean {

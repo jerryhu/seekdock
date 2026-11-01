@@ -294,14 +294,14 @@ suite('Conversation store', () => {
 		store.handleHostMessage({
 			type: 'planReviewResolved',
 			reviewId: 'plan-review:session-1:call-1',
-			decision: 'keep-planning',
+			decision: 'changes-requested',
 		});
 
 		const resolved = store.getMessage('request-1:assistant');
 		assert.ok(resolved?.kind === 'assistant');
 		const resolvedReview = resolved.entries.find(entry => entry.kind === 'plan-review');
 		assert.ok(resolvedReview?.kind === 'plan-review');
-		assert.strictEqual(resolvedReview.review.decision, 'keep-planning');
+		assert.strictEqual(resolvedReview.review.decision, 'changes-requested');
 	});
 
 	test('loads a persisted transcript as completed chat messages', () => {

@@ -25,6 +25,7 @@ import type {
 	WorkspaceChangeSet,
 	WorkspaceFileDiff,
 } from '../shared/workspace-changes.ts';
+import type { PlanDocument } from '../shared/plan-document.ts';
 import {
 	DEFAULT_MODEL_SELECTION,
 	type ModelSelection,
@@ -142,6 +143,9 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 		language: detectInitialLanguage(),
 	});
 	const [focusToken, setFocusToken] = useState(0);
+	// Text handed to the composer by another surface (a plan review's change
+	// request): the token makes repeated insertions of the same text distinct.
+	const [draftInsertion, setDraftInsertion] = useState<{ text: string; token: number }>();
 	const [activeRequestId, setActiveRequestId] = useState<string>();
 	const pendingWorkspaceDiffs = useRef(new Map<string, {
 		timer: number;
@@ -579,7 +583,23 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 			requestId: crypto.randomUUID(),
 			reviewId: review.id,
 			decision,
-			...(feedback.length === 0 ? {} : { feedback }),
+		});
+		if (decision === 'request-changes' && feedback.length > 0) {
+			// The answer ends the reviewed turn, so the text the user typed
+			// becomes their next message instead of a hidden model input.
+			setDraftInsertion(current => ({
+				text: feedback,
+				token: (current?.token ?? 0) + 1,
+			}));
+		}
+	};
+
+	const openPlanPreview = (plan: PlanDocument): void => {
+		vscode.postMessage({
+			type: 'openPlanPreview',
+			requestId: crypto.randomUUID(),
+			title: plan.title,
+			markdown: plan.markdown,
 		});
 	};
 
@@ -889,6 +909,7 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 						onOpenLink={openLink}
 						onApprovalAnswer={answerApproval}
 						onPlanReviewAnswer={answerPlanReview}
+						onPreviewPlan={openPlanPreview}
 						onRequestWorkspaceDiff={requestWorkspaceDiff}
 						onOpenWorkspaceDiff={openWorkspaceDiff}
 					/>
@@ -918,6 +939,7 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 				focusToken={focusToken}
 				initialDraft={initialDraft}
 				initialSkills={initialSkills}
+				{...(draftInsertion === undefined ? {} : { draftInsertion })}
 				files={ui.composerFiles}
 				pickingFiles={ui.pickingFiles}
 				{...(ui.fileSelectionError === undefined

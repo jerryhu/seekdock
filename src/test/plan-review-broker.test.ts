@@ -13,7 +13,7 @@ suite('Plan review broker', () => {
 		const broker = new PlanReviewBroker({
 			onQuestion: async (question) => {
 				questions.push(question);
-				return { approved: true };
+				return 'approve';
 			},
 		});
 		await broker.start();
@@ -24,7 +24,6 @@ suite('Plan review broker', () => {
 				callId: 'call-1',
 				plan: PLAN,
 				approveLabel: 'Approve',
-				declineLabel: 'Keep planning',
 			});
 			assert.deepStrictEqual(reply, {
 				outcome: 'answered',
@@ -36,48 +35,25 @@ suite('Plan review broker', () => {
 				callId: 'call-1',
 				plan: PLAN,
 				approveLabel: 'Approve',
-				declineLabel: 'Keep planning',
 			}]);
 		} finally {
 			await broker.dispose();
 		}
 	});
 
-	test('encodes declined reviews as feedback or as the declining option', async () => {
-		const broker = new PlanReviewBroker({
-			onQuestion: async question => question.callId === 'call-feedback'
-				? { approved: false, feedback: 'Add tests first' }
-				: { approved: false },
-		});
+	test('ends the reviewed turn when the user asks for plan changes', async () => {
+		const broker = new PlanReviewBroker({ onQuestion: async () => 'request-changes' });
 		await broker.start();
 		try {
 			assert.deepStrictEqual(
 				await askBroker(broker.socketPath, {
 					sessionId: 'session-1',
 					questionId: 'plan-review',
-					callId: 'call-feedback',
+					callId: 'call-1',
 					plan: PLAN,
 					approveLabel: 'Approve',
-					declineLabel: 'Keep planning',
 				}),
-				{
-					outcome: 'answered',
-					answers: [{ id: 'plan-review', selected: [], custom: 'Add tests first' }],
-				},
-			);
-			assert.deepStrictEqual(
-				await askBroker(broker.socketPath, {
-					sessionId: 'session-1',
-					questionId: 'plan-review',
-					callId: 'call-plain',
-					plan: PLAN,
-					approveLabel: 'Approve',
-					declineLabel: 'Keep planning',
-				}),
-				{
-					outcome: 'answered',
-					answers: [{ id: 'plan-review', selected: ['Keep planning'] }],
-				},
+				{ outcome: 'cancelled' },
 			);
 		} finally {
 			await broker.dispose();

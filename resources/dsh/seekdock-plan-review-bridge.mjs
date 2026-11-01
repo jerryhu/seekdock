@@ -16,6 +16,10 @@ export const inject = ['userQuestions'];
 
 const PLAN_REVIEW = 'plan-review';
 const REQUEST_TIMEOUT_MS = 10 * 60_000;
+/** DSH's error code for a review the user withdrew, which concludes the turn. */
+const CANCELLED_CODE = 'ASK_CANCELLED';
+/** Closed outcome the host sends when the user asked for plan changes. */
+const CANCELLED = 'cancelled';
 
 export function apply(ctx) {
 	const socketPath = process.env.SEEKDOCK_PLAN_REVIEW_SOCKET;
@@ -28,9 +32,32 @@ export function apply(ctx) {
 		if (review === undefined) {
 			return next();
 		}
-		return askHost(ctx, socketPath, review, request.signal).then(
-			answers => (answers === undefined ? next() : answers),
-		);
+		return askHost(ctx, socketPath, review, request.signal).then((outcome) => {
+			if (outcome === undefined) {
+				return next();
+			}
+			if (outcome === CANCELLED) {
+				// `dsh-plan-mode` turns ASK_CANCELLED into `exec.concludeTurn()`, so the
+				// reviewed turn ends and the user sends the change request themselves.
+				throw cancelledQuestion();
+			}
+			return outcome;
+		});
+	});
+}
+
+/**
+ * Build the error DSH restores into its own `UserQuestionError`.
+ *
+ * The runtime recognises this failure by name and code across module
+ * boundaries, so the bridge does not import the runtime's error class.
+ *
+ * @returns a rejected-answer value carrying DSH's cancelled code.
+ */
+function cancelledQuestion() {
+	return Object.assign(new Error('the user asked for plan changes'), {
+		name: 'UserQuestionError',
+		code: CANCELLED_CODE,
 	});
 }
 
@@ -59,7 +86,6 @@ function planReviewOf(request) {
 	if (approve === undefined || options.length > 2) {
 		return undefined;
 	}
-	const decline = options.find(option => option?.label !== intent.approve);
 	const sessionId = request.agent?.session?.id;
 	if (typeof sessionId !== 'string' || sessionId.length === 0) {
 		return undefined;
@@ -70,15 +96,14 @@ function planReviewOf(request) {
 		...(intent.callId === undefined ? {} : { callId: String(intent.callId) }),
 		plan: question.detail,
 		approveLabel: approve.label,
-		...(decline === undefined ? {} : { declineLabel: decline.label }),
 	};
 }
 
 /**
- * Send one review to the host and wait for its answer batch.
+ * Send one review to the host and wait for its decision.
  *
- * @returns DSH's answer batch, or `undefined` when the host cannot answer, the
- *   review timed out, or the turn was aborted.
+ * @returns DSH's answer batch, the {@link CANCELLED} outcome, or `undefined`
+ *   when the host cannot answer, the review timed out, or the turn was aborted.
  */
 function askHost(ctx, socketPath, review, signal) {
 	return new Promise(resolve => {
@@ -87,7 +112,7 @@ function askHost(ctx, socketPath, review, signal) {
 		let settled = false;
 		let timer;
 
-		const finish = answers => {
+		const finish = outcome => {
 			if (settled) {
 				return;
 			}
@@ -95,7 +120,7 @@ function askHost(ctx, socketPath, review, signal) {
 			clearTimeout(timer);
 			signal?.removeEventListener('abort', onAbort);
 			socket.destroy();
-			resolve(answers);
+			resolve(outcome);
 		};
 		const onAbort = () => finish(undefined);
 
@@ -118,7 +143,7 @@ function askHost(ctx, socketPath, review, signal) {
 			}
 			try {
 				const reply = JSON.parse(buffer.slice(0, newline));
-				finish(reply?.outcome === 'answered' ? readAnswers(reply.answers) : undefined);
+				finish(readOutcome(reply));
 			} catch {
 				finish(undefined);
 			}
@@ -129,6 +154,18 @@ function askHost(ctx, socketPath, review, signal) {
 		});
 		socket.once('end', () => finish(undefined));
 	});
+}
+
+/**
+ * Narrow one host reply to an answer batch or the cancelled outcome.
+ *
+ * @returns the validated batch, {@link CANCELLED}, or `undefined` to delegate.
+ */
+function readOutcome(reply) {
+	if (reply?.outcome === CANCELLED) {
+		return CANCELLED;
+	}
+	return reply?.outcome === 'answered' ? readAnswers(reply.answers) : undefined;
 }
 
 /** Validate the host's answer batch before returning it to DSH. */

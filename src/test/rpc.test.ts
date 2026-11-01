@@ -162,8 +162,19 @@ suite('RPC contract', () => {
 			type: 'planReviewResponse',
 			requestId: 'request-11',
 			reviewId: 'plan-review:session-1:call-1',
-			decision: 'keep-planning',
-			feedback: 'Add tests first',
+			decision: 'request-changes',
+		}));
+		assert.ok(isWebviewToHostMessage({
+			type: 'openPlanPreview',
+			requestId: 'request-12',
+			title: 'Add a widget',
+			markdown: '# Add a widget',
+		}));
+		assert.ok(!isWebviewToHostMessage({
+			type: 'openPlanPreview',
+			requestId: 'request-12',
+			title: 'Add a widget',
+			markdown: '   ',
 		}));
 		assert.ok(isWebviewToHostMessage({
 			type: 'planReviewResponse',
@@ -187,8 +198,7 @@ suite('RPC contract', () => {
 			type: 'planReviewResponse',
 			requestId: 'request-11',
 			reviewId: 'plan-review:session-1:call-1',
-			decision: 'approve',
-			feedback: 5,
+			decision: 'keep-planning',
 		}));
 	});
 

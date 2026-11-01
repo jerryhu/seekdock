@@ -293,6 +293,75 @@ suite('Session history', () => {
 		assert.strictEqual(messages[1].changes, undefined);
 	});
 
+	test('replays a submitted plan as a review card instead of a tool row', () => {
+		const events: SessionEvent[] = [
+			{ type: 'turn/start', seq: SessionSeq(0), time: 0, data: { turn: 1 } },
+			userMessage(1, 'Plan the widget'),
+			exitPlanModeCall(2, '# Add a widget\n\nRender it above the composer.'),
+			exitPlanModeResult(3, false),
+			planModeEvent(4, false),
+			{
+				type: 'turn/end',
+				seq: SessionSeq(5),
+				time: 5,
+				data: { turn: 1, reason: { kind: 'completed' } },
+			},
+		];
+
+		const messages = transcriptFromSessionEvents(events);
+		assert.ok(messages[1]?.kind === 'assistant');
+		assert.deepStrictEqual(messages[1].entries, [{
+			kind: 'plan-review',
+			id: 'history-plan-call-plan',
+			review: {
+				id: 'plan-review:call-plan',
+				plan: '# Add a widget\n\nRender it above the composer.',
+				decision: 'approved',
+			},
+		}]);
+	});
+
+	test('replays a plan review that asked for changes', () => {
+		const events: SessionEvent[] = [
+			{ type: 'turn/start', seq: SessionSeq(0), time: 0, data: { turn: 1 } },
+			userMessage(1, 'Plan the widget'),
+			exitPlanModeCall(2, '# Add a widget'),
+			exitPlanModeResult(3, false),
+			{
+				type: 'turn/end',
+				seq: SessionSeq(4),
+				time: 4,
+				data: { turn: 1, reason: { kind: 'completed' } },
+			},
+		];
+
+		const messages = transcriptFromSessionEvents(events);
+		assert.ok(messages[1]?.kind === 'assistant');
+		const entry = messages[1].entries.find(item => item.kind === 'plan-review');
+		assert.ok(entry?.kind === 'plan-review');
+		assert.strictEqual(entry.review.decision, 'changes-requested');
+	});
+
+	test('keeps a plan whose review never settled closed', () => {
+		const events: SessionEvent[] = [
+			{ type: 'turn/start', seq: SessionSeq(0), time: 0, data: { turn: 1 } },
+			userMessage(1, 'Plan the widget'),
+			exitPlanModeCall(2, '# Add a widget'),
+			{
+				type: 'turn/end',
+				seq: SessionSeq(3),
+				time: 3,
+				data: { turn: 1, reason: { kind: 'interrupted' } },
+			},
+		];
+
+		const messages = transcriptFromSessionEvents(events);
+		assert.ok(messages[1]?.kind === 'assistant');
+		const entry = messages[1].entries.find(item => item.kind === 'plan-review');
+		assert.ok(entry?.kind === 'plan-review');
+		assert.strictEqual(entry.review.decision, 'cancelled');
+	});
+
 	test('summarizes persisted metadata and counts only human messages', () => {
 		const header: SessionHeader = {
 			version: SESSION_FORMAT_VERSION,
@@ -419,4 +488,60 @@ function userMessage(
 		},
 		surfaceOp: 'append',
 	};
+}
+
+function exitPlanModeCall(seq: number, plan: string): SessionEvent {
+	return {
+		type: 'tool/call',
+		seq: SessionSeq(seq),
+		time: seq,
+		data: {
+			turn: 1,
+			step: 1,
+			callId: ToolCallId('call-plan'),
+			name: 'exit_plan_mode',
+			arguments: JSON.stringify({ plan }),
+		},
+	};
+}
+
+function exitPlanModeResult(seq: number, isError: boolean): SessionEvent {
+	return {
+		type: 'tool/result',
+		seq: SessionSeq(seq),
+		time: seq,
+		data: {
+			turn: 1,
+			step: 1,
+			message: {
+				id: MessageId(`result-${seq}`),
+				role: 'tool',
+				source: { kind: 'tool', callId: ToolCallId('call-plan') },
+				toolCallId: ToolCallId('call-plan'),
+				content: [{
+					type: 'text',
+					text: isError
+						? 'The user chose to keep planning; revise the plan and present it again.'
+						: 'The user dismissed the plan review to reply in their own words; plan mode remains active.',
+				}],
+				isError,
+			},
+		},
+		surfaceOp: 'append',
+	};
+}
+
+/**
+ * Build a `plan/mode` event without the plan-mode package's session augmentation.
+ *
+ * SeekDock does not depend on that package, so the event is cast to the base
+ * session-event shape the history projection reads.
+ */
+function planModeEvent(seq: number, active: boolean): SessionEvent {
+	return {
+		type: 'plan/mode',
+		seq: SessionSeq(seq),
+		time: seq,
+		data: { active },
+	} as unknown as SessionEvent;
 }

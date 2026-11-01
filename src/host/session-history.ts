@@ -15,6 +15,7 @@ import { foldSessionTitle } from '@deepseek-ai/dsh-session-title';
 // Loads the `workspace/changes` event augmentation this projection switches on.
 import type {} from '@deepseek-ai/dsh-workspace-changes';
 import type {
+	PlanReview,
 	SessionSummary,
 	ToolCall,
 	TranscriptEntry,
@@ -22,6 +23,7 @@ import type {
 } from '../shared/rpc.ts';
 import type { WorkspaceChangeSet } from '../shared/workspace-changes.ts';
 import { LocalizedError } from '../shared/i18n/index.ts';
+import { planDocumentFromArguments } from '../shared/plan-document.ts';
 import { recoverableToolError } from './tool-call-error.ts';
 
 /** Session list plus the complete replayable transcript requested by the Webview. */
@@ -255,6 +257,9 @@ export function transcriptFromSessionEvents(
 		changes?: WorkspaceChangeSet;
 	} | undefined;
 	let turnStartedAt: number | undefined;
+	// `exit_plan_mode` logs the whole plan; replaying its call is what keeps a
+	// submitted plan readable after the Session is reopened.
+	const planReviews = new Map<string, PlanReplay>();
 
 	const ensureAssistant = (time: number, seq: number): NonNullable<typeof assistant> => {
 		assistant ??= {
@@ -279,6 +284,18 @@ export function transcriptFromSessionEvents(
 	};
 
 	for (const event of events) {
+		const planMode = readPlanModeEvent(event);
+		if (planMode?.active === false) {
+			// Leaving plan mode after a successful review is the approval: DSH
+			// appends the logged state on the next step of the same turn.
+			for (const plan of planReviews.values()) {
+				if (plan.settledSeq !== undefined && plan.settledSeq < planMode.seq) {
+					plan.review.decision = 'approved';
+					plan.settledSeq = undefined;
+				}
+			}
+			continue;
+		}
 		switch (event.type) {
 			case 'turn/start':
 				flushAssistant();
@@ -319,6 +336,25 @@ export function transcriptFromSessionEvents(
 			}
 			case 'tool/call': {
 				const message = ensureAssistant(event.time, event.seq);
+				const plan = event.data.name === EXIT_PLAN_MODE_TOOL
+					? planDocumentFromArguments(event.data.arguments)
+					: undefined;
+				if (plan !== undefined) {
+					// The plan card replaces the generic tool row: the logged
+					// arguments are the plan itself, not a useful process line.
+					const review: PlanReview = {
+						id: `plan-review:${event.data.callId}`,
+						plan: plan.markdown,
+						decision: 'cancelled',
+					};
+					planReviews.set(event.data.callId, { review });
+					message.entries.push({
+						kind: 'plan-review',
+						id: `history-plan-${event.data.callId}`,
+						review,
+					});
+					break;
+				}
 				message.entries.push({
 					kind: 'tool',
 					id: `history-tool-${event.data.callId}`,
@@ -339,6 +375,16 @@ export function transcriptFromSessionEvents(
 					? 'error'
 					: 'completed';
 				const recoverable = recoverableToolError(event.data.error?.code);
+				const plan = planReviews.get(callId);
+				if (plan !== undefined) {
+					// A failed call is either the pre-dismissal revision path or a call
+					// refused outside plan mode; both keep the plan readable and closed.
+					plan.review.decision = 'changes-requested';
+					if (status !== 'error') {
+						plan.settledSeq = event.seq;
+					}
+					break;
+				}
 				const toolId = `history-tool-${callId}`;
 				const index = message.entries.findIndex(
 					entry => entry.kind === 'tool' && entry.id === toolId,
@@ -414,6 +460,37 @@ function toolErrorFields(
 	error: { name: string; reason?: string } | undefined,
 ): Pick<ToolCall, 'error'> {
 	return error === undefined ? {} : { error: error.reason ?? error.name };
+}
+
+/** Tool DSH registers for the reviewed exit out of plan mode. */
+const EXIT_PLAN_MODE_TOOL = 'exit_plan_mode';
+
+/** One replayed plan review plus the log position of its settled tool result. */
+interface PlanReplay {
+	review: PlanReview;
+	/** Set once a successful result was logged, awaiting a `plan/mode` fold. */
+	settledSeq?: number;
+}
+
+/**
+ * Read the plan state DSH's plan-mode plugin logs.
+ *
+ * SeekDock does not depend on that package, so its session-event augmentation is
+ * not loaded and the event type is matched by wire value instead of by type.
+ *
+ * @param event - one persisted session event.
+ * @returns the log position and folded active flag, or `undefined` for any other event.
+ */
+function readPlanModeEvent(event: SessionEvent): { seq: number; active: boolean } | undefined {
+	if (String(event.type) !== 'plan/mode') {
+		return undefined;
+	}
+	const data: unknown = event.data;
+	if (typeof data !== 'object' || data === null || !('active' in data)) {
+		return undefined;
+	}
+	const active: unknown = data.active;
+	return typeof active === 'boolean' ? { seq: event.seq, active } : undefined;
 }
 
 /**

@@ -16,6 +16,7 @@ import { DATA_ROOT_ENV, resolveDataRoot } from './host/data-root.ts';
 import { resolveDshRuntime } from './host/dsh-runtime.ts';
 import { formatErrorMessage as formatError } from './host/error-format.ts';
 import type { HarnessActivityEvent } from './host/harness-events.ts';
+import { PlanDocuments } from './host/plan-documents.ts';
 import {
 	McpServerStore,
 	McpServerStoreError,
@@ -130,6 +131,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	private readonly mcpStore: McpServerStore;
 	private readonly workspaceDiffs = new WorkspaceDiffDocuments();
 	private readonly workspaceChanges: WorkspaceChangeStore;
+	private readonly planDocuments: PlanDocuments;
 	private approvalBroker: ApprovalBroker | undefined;
 	private planReviewBroker: PlanReviewBroker | undefined;
 	private readonly pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>();
@@ -180,6 +182,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		this.workspaceChanges = new WorkspaceChangeStore(
 			vscode.Uri.joinPath(storageUri, 'workspace-change-history').fsPath,
 		);
+		this.planDocuments = new PlanDocuments(storageUri.fsPath);
 	}
 
 	/** Whether VS Code has created the Webview, i.e. the view has actually been opened. */
@@ -408,6 +411,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 				break;
 			case 'planReviewResponse':
 				await this.answerPlanReview(message);
+				break;
+			case 'openPlanPreview':
+				await this.openPlanPreview(message);
 				break;
 			case 'requestWorkspaceFileDiff':
 				await this.requestWorkspaceFileDiff(message);
@@ -1268,17 +1274,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		const pending = this.pendingPlanReviews.get(message.reviewId);
 		if (pending !== undefined) {
 			this.pendingPlanReviews.delete(message.reviewId);
-			pending({
-				approved: message.decision === 'approve',
-				...(message.feedback === undefined || message.feedback.trim().length === 0
-					? {}
-					: { feedback: message.feedback }),
-			});
+			pending(message.decision === 'approve' ? 'approve' : 'request-changes');
 		}
 		await this.postMessage({
 			type: 'planReviewResolved',
 			reviewId: message.reviewId,
-			decision: message.decision === 'approve' ? 'approved' : 'keep-planning',
+			decision: message.decision === 'approve' ? 'approved' : 'changes-requested',
 		});
 	}
 
@@ -1625,6 +1626,20 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			const detail = formatError(error, '');
 			void vscode.window.showErrorMessage(
 				translate(this.language, 'hostWorkspaceDiffOpenFailed', { message: detail }),
+			);
+		}
+	}
+
+	/** Write one submitted plan as Markdown and open it beside the chat. */
+	private async openPlanPreview(
+		message: Extract<WebviewToHostMessage, { type: 'openPlanPreview' }>,
+	): Promise<void> {
+		try {
+			await this.planDocuments.open(message.markdown, message.title);
+		} catch (error) {
+			const detail = formatError(error, '');
+			void vscode.window.showErrorMessage(
+				translate(this.language, 'hostPlanPreviewFailed', { message: detail }),
 			);
 		}
 	}

@@ -14,16 +14,15 @@ export interface PlanReviewQuestion {
 	plan: string;
 	/** Option label that approves the plan. */
 	approveLabel: string;
-	/** Option label that keeps planning, when the request offered one. */
-	declineLabel?: string;
 }
 
-/** The user's decision for one plan review, before DSH's answer encoding. */
-export interface PlanReviewVerdict {
-	approved: boolean;
-	/** Free-text revision request, only meaningful when the plan was declined. */
-	feedback?: string;
-}
+/**
+ * The user's decision for one plan review, before DSH's wire encoding.
+ *
+ * `request-changes` is not an answer: DSH concludes the reviewed turn, so the
+ * user can send the revision request as their own next message.
+ */
+export type PlanReviewVerdict = 'approve' | 'request-changes';
 
 export interface PlanReviewBrokerOptions {
 	/** Resolve one review with the user's decision, or `undefined` when nobody can answer. */
@@ -143,9 +142,14 @@ export class PlanReviewBroker {
 					timer = setTimeout(() => resolve(undefined), timeoutMs);
 				}),
 			]);
-			return verdict === undefined
-				? { outcome: 'unavailable' }
-				: { outcome: 'answered', answers: encodeAnswer(question, verdict) };
+			if (verdict === undefined) {
+				return { outcome: 'unavailable' };
+			}
+			// A request for changes sends no answer: the runtime turns `cancelled`
+			// into DSH's ASK_CANCELLED, which concludes the reviewed turn.
+			return verdict === 'approve'
+				? { outcome: 'answered', answers: encodeApproval(question) }
+				: { outcome: 'cancelled' };
 		} catch {
 			return { outcome: 'unavailable' };
 		} finally {
@@ -157,24 +161,11 @@ export class PlanReviewBroker {
 }
 
 /**
- * Translate the Webview's decision into DSH's answer batch. A declined review
- * carries free text as the question's `custom` answer, because that is the
- * value `exit_plan_mode` forwards to the model as revision feedback.
+ * Translate approval into DSH's answer batch. `exit_plan_mode` matches the
+ * option label, so only that label is sent; the question id ties it to its call.
  */
-function encodeAnswer(
-	question: PlanReviewQuestion,
-	answer: PlanReviewVerdict,
-): readonly Record<string, unknown>[] {
-	if (answer.approved) {
-		return [{ id: question.questionId, selected: [question.approveLabel] }];
-	}
-	if (answer.feedback !== undefined && answer.feedback.trim().length > 0) {
-		return [{ id: question.questionId, selected: [], custom: answer.feedback }];
-	}
-	return [{
-		id: question.questionId,
-		selected: question.declineLabel === undefined ? [] : [question.declineLabel],
-	}];
+function encodeApproval(question: PlanReviewQuestion): readonly Record<string, unknown>[] {
+	return [{ id: question.questionId, selected: [question.approveLabel] }];
 }
 
 function parseQuestion(raw: string): PlanReviewQuestion | undefined {
@@ -195,14 +186,12 @@ function parseQuestion(raw: string): PlanReviewQuestion | undefined {
 		return undefined;
 	}
 	const callId = readOptionalText(record.callId);
-	const declineLabel = readOptionalText(record.declineLabel);
 	return {
 		sessionId: record.sessionId,
 		questionId: record.questionId,
 		plan: record.plan,
 		approveLabel: record.approveLabel,
 		...(callId === undefined ? {} : { callId }),
-		...(declineLabel === undefined ? {} : { declineLabel }),
 	};
 }
 

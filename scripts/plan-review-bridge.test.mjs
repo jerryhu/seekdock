@@ -24,8 +24,19 @@ test('plan-review bridge forwards a plan review and returns the host answer', as
 		callId: 'call-1',
 		plan: PLAN,
 		approveLabel: 'Approve',
-		declineLabel: 'Keep planning',
 	}]);
+});
+
+test('plan-review bridge ends the reviewed turn when the host reports changes', async (t) => {
+	const host = await startHost(t, () => ({ outcome: 'cancelled' }));
+	const listener = register(t, host.socketPath);
+
+	await assert.rejects(
+		listener(planReviewRequest(), async () => {
+			throw new Error('the bridge must not delegate a withdrawn review');
+		}),
+		(error) => error?.name === 'UserQuestionError' && error?.code === 'ASK_CANCELLED',
+	);
 });
 
 test('plan-review bridge delegates reviews it cannot present', async (t) => {

@@ -68,13 +68,25 @@ export interface Approval {
 	decision?: ApprovalDecision;
 }
 
-/** Closed outcome of a plan review card shared with the UI. */
-export type PlanReviewDecision = 'approved' | 'keep-planning' | 'cancelled' | 'unavailable';
+/**
+ * Closed outcome of a plan review card shared with the UI.
+ *
+ * `changes-requested` means the user sent the plan back and the turn that
+ * submitted it ended, matching the Harness desktop review.
+ */
+export type PlanReviewDecision =
+	| 'approved'
+	| 'changes-requested'
+	| 'cancelled'
+	| 'unavailable';
 
 /** The two answers SeekDock offers for a plan under review. */
-export type PlanReviewAnswer = 'approve' | 'keep-planning';
+export type PlanReviewAnswer = 'approve' | 'request-changes';
 
-/** One plan that DSH's exit_plan_mode tool submitted for review. */
+/**
+ * One plan that DSH's exit_plan_mode tool submitted for review. The same shape
+ * replays from the session log, so a reopened conversation still shows the plan.
+ */
 export interface PlanReview {
 	id: string;
 	/** Plan markdown under review. */
@@ -125,7 +137,8 @@ export type RuntimeStatus = 'idle' | 'initializing' | 'ready' | 'error';
 export type TranscriptEntry =
 	| { kind: 'text'; id: string; text: string }
 	| { kind: 'reasoning'; id: string; text: string }
-	| { kind: 'tool'; id: string; call: ToolCall };
+	| { kind: 'tool'; id: string; call: ToolCall }
+	| { kind: 'plan-review'; id: string; review: PlanReview };
 
 /** One replayed chat message loaded from a DSH session log. */
 export type TranscriptMessage =
@@ -178,7 +191,13 @@ export type WebviewToHostMessage =
 		requestId: string;
 		reviewId: string;
 		decision: PlanReviewAnswer;
-		feedback?: string;
+	}
+	| {
+		/** Materialize one plan as Markdown and open it beside the chat. */
+		type: 'openPlanPreview';
+		requestId: string;
+		title: string;
+		markdown: string;
 	}
 	| {
 		type: 'requestWorkspaceFileDiff';
@@ -382,8 +401,12 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHostMe
 		case 'planReviewResponse':
 			return isNonEmptyString(value.requestId)
 				&& isNonEmptyString(value.reviewId)
-				&& (value.decision === 'approve' || value.decision === 'keep-planning')
-				&& (value.feedback === undefined || typeof value.feedback === 'string');
+				&& (value.decision === 'approve' || value.decision === 'request-changes');
+		case 'openPlanPreview':
+			return isNonEmptyString(value.requestId)
+				&& typeof value.title === 'string'
+				&& typeof value.markdown === 'string'
+				&& value.markdown.trim().length > 0;
 		case 'requestWorkspaceFileDiff':
 		case 'openWorkspaceFileDiff':
 			return isNonEmptyString(value.requestId)
@@ -596,6 +619,8 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
 			return typeof value.text === 'string';
 		case 'tool':
 			return isToolCall(value.call);
+		case 'plan-review':
+			return isPlanReview(value.review);
 		default:
 			return false;
 	}
@@ -645,7 +670,7 @@ function isPlanReview(value: unknown): value is PlanReview {
 
 function isPlanReviewDecision(value: unknown): value is PlanReviewDecision {
 	return value === 'approved'
-		|| value === 'keep-planning'
+		|| value === 'changes-requested'
 		|| value === 'cancelled'
 		|| value === 'unavailable';
 }

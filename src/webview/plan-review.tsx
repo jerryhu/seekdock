@@ -1,36 +1,49 @@
-import { useState } from 'preact/hooks';
+import { useMemo, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
-import { ClipboardCheck } from 'lucide-preact';
+import { ChevronDown, ChevronRight, ClipboardCheck, FileText } from 'lucide-preact';
 import type { PlanReview, PlanReviewAnswer, PlanReviewDecision } from '../shared/rpc.ts';
+import { planDocument, type PlanDocument } from '../shared/plan-document.ts';
 import type { Translator } from '../shared/i18n/index.ts';
 import { useI18n } from './i18n-context.tsx';
 import { Markdown } from './markdown.tsx';
 
 /**
- * Plan review card for DSH's `exit_plan_mode` question. Approving leaves plan
- * mode for the next step; keeping planning sends the textarea back to the model
- * as revision feedback. Once answered, the card keeps the closed outcome.
+ * Plan review card for DSH's `exit_plan_mode` question.
+ *
+ * Approving leaves plan mode for the next step; asking for changes ends the
+ * reviewed turn, so the textarea's text goes back to the composer as the user's
+ * own next message. A settled or replayed card folds to its title and opening
+ * paragraph, and either state can open the plan as Markdown beside the chat.
  */
 export function PlanReviewView({
 	review,
 	onOpenLink,
 	onAnswer,
+	onPreview,
 }: {
 	review: PlanReview;
 	onOpenLink: (url: string) => void;
 	onAnswer?: (decision: PlanReviewAnswer, feedback: string) => void;
+	onPreview: (plan: PlanDocument) => void;
 }): JSX.Element {
 	const { t } = useI18n();
 	const [sent, setSent] = useState(false);
 	const [feedback, setFeedback] = useState('');
+	// `undefined` follows the default: open while the review is live, folded on replay.
+	const [expanded, setExpanded] = useState<boolean | undefined>(undefined);
 	const decision = review.decision;
+	const document = useMemo(() => planDocument(review.plan), [review.plan]);
+	const answering = decision === undefined && !sent;
+	// Open while the review still needs an answer, and stay open right after it
+	// is sent; a replayed card starts folded so a long plan stays out of the way.
+	const bodyVisible = expanded ?? (decision === undefined);
 
 	const answer = (value: PlanReviewAnswer): void => {
-		if (sent || decision !== undefined) {
+		if (!answering) {
 			return;
 		}
 		setSent(true);
-		onAnswer?.(value, feedback);
+		onAnswer?.(value, feedback.trim());
 	};
 
 	return (
@@ -46,30 +59,64 @@ export function PlanReviewView({
 					)
 					: null}
 			</header>
-			<div className="plan-review-plan">
-				<Markdown text={review.plan} onOpenLink={onOpenLink} />
-			</div>
-			{decision === undefined
+			{bodyVisible
 				? (
-					<>
-						<label className="plan-review-feedback">
-							<span>{t('planReviewFeedback')}</span>
-							<textarea
-								value={feedback}
-								rows={2}
-								disabled={sent}
-								placeholder={t('planReviewFeedbackPlaceholder')}
-								onInput={event => setFeedback(event.currentTarget.value)}
-							/>
-						</label>
-						<div className="plan-review-actions">
+					<div className="plan-review-plan">
+						<Markdown text={document.markdown} onOpenLink={onOpenLink} />
+					</div>
+				)
+				: (
+					<div className="plan-review-summary">
+						<span className="plan-review-heading">{document.title}</span>
+						{document.summary.length === 0
+							? null
+							: <p className="plan-review-excerpt">{document.summary}</p>}
+					</div>
+				)}
+			{answering
+				? (
+					<label className="plan-review-feedback">
+						<span>{t('planReviewFeedback')}</span>
+						<textarea
+							value={feedback}
+							rows={2}
+							disabled={sent}
+							placeholder={t('planReviewFeedbackPlaceholder')}
+							onInput={event => setFeedback(event.currentTarget.value)}
+						/>
+					</label>
+				)
+				: null}
+			<div className="plan-review-actions">
+				<button
+					type="button"
+					className="secondary-button"
+					onClick={() => onPreview(document)}
+				>
+					<FileText size={13} aria-hidden="true" />
+					{t('planReviewPreview')}
+				</button>
+				<button
+					type="button"
+					className="secondary-button"
+					aria-expanded={bodyVisible}
+					onClick={() => setExpanded(!bodyVisible)}
+				>
+					{bodyVisible
+						? <ChevronDown size={13} aria-hidden="true" />
+						: <ChevronRight size={13} aria-hidden="true" />}
+					<span>{bodyVisible ? t('collapseDetails') : t('expandDetails')}</span>
+				</button>
+				{answering
+					? (
+						<>
 							<button
 								type="button"
 								className="secondary-button"
 								disabled={sent}
-								onClick={() => answer('keep-planning')}
+								onClick={() => answer('request-changes')}
 							>
-								{t('planReviewKeepPlanning')}
+								{t('planReviewRequestChanges')}
 							</button>
 							<button
 								type="button"
@@ -79,10 +126,12 @@ export function PlanReviewView({
 							>
 								{t('planReviewApprove')}
 							</button>
-						</div>
-					</>
-				)
-				: <div className="plan-review-outcome">{decisionLabel(decision, t)}</div>}
+						</>
+					)
+					: decision === undefined
+						? null
+						: <div className="plan-review-outcome">{decisionLabel(decision, t)}</div>}
+			</div>
 		</section>
 	);
 }
@@ -91,8 +140,8 @@ function decisionLabel(decision: PlanReviewDecision, t: Translator): string {
 	switch (decision) {
 		case 'approved':
 			return t('planReviewApproved');
-		case 'keep-planning':
-			return t('planReviewKept');
+		case 'changes-requested':
+			return t('planReviewChangesRequested');
 		case 'cancelled':
 			return t('cancelled');
 		case 'unavailable':

@@ -139,6 +139,7 @@ export const pt = {
 	planMode: 'Modo de plano',
 	planModeEnabled: 'O modo de plano está ativo',
 	enablePlanMode: 'Ativar modo de plano',
+	planModeShort: 'Plano',
 	modelAndReasoningCurrent: 'Modelo e esforço de raciocínio. Atual: {label}',
 	changeModelOrReasoning: 'Alterar modelo ou esforço de raciocínio',
 	modelAndReasoning: 'Modelo e esforço de raciocínio',

@@ -499,7 +499,7 @@ export function Composer({
 												</>
 											)}
 									</span>
-									<span>{t('planMode')}</span>
+									<span>{t('planModeShort')}</span>
 								</button>
 							)
 							: null}

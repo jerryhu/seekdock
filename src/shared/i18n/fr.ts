@@ -139,6 +139,7 @@ export const fr = {
 	planMode: 'Mode plan',
 	planModeEnabled: 'Le mode plan est actif',
 	enablePlanMode: 'Activer le mode plan',
+	planModeShort: 'Plan',
 	modelAndReasoningCurrent: 'Modèle et effort de raisonnement. Actuel : {label}',
 	changeModelOrReasoning: 'Changer de modèle ou d’effort de raisonnement',
 	modelAndReasoning: 'Modèle et effort de raisonnement',

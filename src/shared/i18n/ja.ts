@@ -139,6 +139,7 @@ export const ja = {
 	planMode: 'プランモード',
 	planModeEnabled: 'プランモードはオンです',
 	enablePlanMode: 'プランモードをオンにする',
+	planModeShort: 'プラン',
 	modelAndReasoningCurrent: 'モデルと推論レベル。現在：{label}',
 	changeModelOrReasoning: 'モデルまたは推論レベルを変更',
 	modelAndReasoning: 'モデルと推論レベル',

@@ -139,6 +139,7 @@ export const de = {
 	planMode: 'Planmodus',
 	planModeEnabled: 'Der Planmodus ist aktiv',
 	enablePlanMode: 'Planmodus einschalten',
+	planModeShort: 'Plan',
 	modelAndReasoningCurrent: 'Modell und Denkaufwand. Aktuell: {label}',
 	changeModelOrReasoning: 'Modell oder Denkaufwand ändern',
 	modelAndReasoning: 'Modell und Denkaufwand',

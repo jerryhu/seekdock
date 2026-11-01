@@ -139,6 +139,7 @@ export const zhCn = {
 	planMode: '计划模式',
 	planModeEnabled: '计划模式已开启',
 	enablePlanMode: '开启计划模式',
+	planModeShort: '计划',
 	modelAndReasoningCurrent: '模型和推理等级，当前 {label}',
 	changeModelOrReasoning: '更改模型或推理等级',
 	modelAndReasoning: '模型和推理等级',

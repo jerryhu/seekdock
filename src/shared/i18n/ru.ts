@@ -139,6 +139,7 @@ export const ru = {
 	planMode: 'Режим плана',
 	planModeEnabled: 'Режим плана включён',
 	enablePlanMode: 'Включить режим плана',
+	planModeShort: 'План',
 	modelAndReasoningCurrent: 'Модель и уровень рассуждений. Сейчас: {label}',
 	changeModelOrReasoning: 'Изменить модель или уровень рассуждений',
 	modelAndReasoning: 'Модель и уровень рассуждений',

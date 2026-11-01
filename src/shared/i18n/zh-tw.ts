@@ -139,6 +139,7 @@ export const zhTw = {
 	planMode: '計畫模式',
 	planModeEnabled: '計畫模式已開啟',
 	enablePlanMode: '開啟計畫模式',
+	planModeShort: '計畫',
 	modelAndReasoningCurrent: '模型和推理等級，目前為 {label}',
 	changeModelOrReasoning: '變更模型或推理等級',
 	modelAndReasoning: '模型和推理等級',

@@ -139,6 +139,7 @@ export const ko = {
 	planMode: '계획 모드',
 	planModeEnabled: '계획 모드가 켜져 있습니다',
 	enablePlanMode: '계획 모드 켜기',
+	planModeShort: '계획',
 	modelAndReasoningCurrent: '모델 및 추론 수준. 현재: {label}',
 	changeModelOrReasoning: '모델 또는 추론 수준 변경',
 	modelAndReasoning: '모델 및 추론 수준',

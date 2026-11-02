@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { connect, createServer as createNetServer } from 'node:net';
@@ -29,6 +30,8 @@ if (target !== hostRuntimeTarget()) {
 
 const requests = [];
 const openResponses = new Set();
+/** The SDK profile exposes the host shell as `pwsh` on Windows and `bash` elsewhere. */
+const shellToolName = process.platform === 'win32' ? 'pwsh' : 'bash';
 let approvalToolIssued = false;
 let smokeReadIssued = false;
 let smokeEditIssued = false;
@@ -86,7 +89,7 @@ const server = createServer((request, response) => {
 				{
 					type: 'content_block_start',
 					index: 0,
-					content_block: { type: 'tool_use', id: 'toolu_approval_1', name: 'bash', input: {} },
+					content_block: { type: 'tool_use', id: 'toolu_approval_1', name: shellToolName, input: {} },
 				},
 				{
 					type: 'content_block_delta',
@@ -238,14 +241,18 @@ if (address === null || typeof address === 'string') {
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), 'seekdock-runtime-smoke-'));
 const workspaceRoot = join(temporaryRoot, 'workspace');
-const cancelSocketPath = join(temporaryRoot, 'cancel.sock');
-const permissionSocketPath = join(temporaryRoot, 'permission.sock');
-const planSocketPath = join(temporaryRoot, 'plan.sock');
-const skillSocketPath = join(temporaryRoot, 'skill.sock');
-const sessionTitleSocketPath = join(temporaryRoot, 'session-title.sock');
-const workspaceChangesSocketPath = join(temporaryRoot, 'workspace-changes.sock');
-const approvalSocketPath = join(temporaryRoot, 'approval.sock');
-const planReviewSocketPath = join(temporaryRoot, 'plan-review.sock');
+// Node on Windows binds IPC endpoints as named pipes; a filesystem path fails with EACCES.
+const runtimeSocketPath = name => process.platform === 'win32'
+	? `\\\\.\\pipe\\seekdock-smoke-${name}-${process.pid}-${randomUUID()}`
+	: join(temporaryRoot, `${name}.sock`);
+const cancelSocketPath = runtimeSocketPath('cancel');
+const permissionSocketPath = runtimeSocketPath('permission');
+const planSocketPath = runtimeSocketPath('plan');
+const skillSocketPath = runtimeSocketPath('skill');
+const sessionTitleSocketPath = runtimeSocketPath('session-title');
+const workspaceChangesSocketPath = runtimeSocketPath('workspace-changes');
+const approvalSocketPath = runtimeSocketPath('approval');
+const planReviewSocketPath = runtimeSocketPath('plan-review');
 const userAgentsHome = join(temporaryRoot, 'home', '.agents');
 const workspaceSkillRoot = join(workspaceRoot, '.agents', 'skills');
 const userSkillRoot = join(userAgentsHome, 'skills');
@@ -283,7 +290,9 @@ await writeFile(
 	const approvalServer = createNetServer(socket => {
 		let input = '';
 		socket.setEncoding('utf8');
-		socket.on('error', () => {});
+		socket.on('error', error => {
+			console.error('SeekDock smoke: the approval socket failed.', error);
+		});
 		socket.on('data', chunk => {
 			input += chunk;
 			if (!input.includes('\n')) return;
@@ -301,6 +310,9 @@ await writeFile(
 	});
 const makeHarness = () => new DeepSeekHarness({
 	cwd: workspaceRoot,
+	// The pkg-based runtime resolves its snapshot inside the process cwd drive.
+	// Keep that on the temp root so a checkout on another drive cannot break it.
+	processCwd: temporaryRoot,
 	dshBin: resolve(root, 'dist', 'dsh-runtime-wrapper.js'),
 	dshHome: join(temporaryRoot, 'dsh-home'),
 	env: {
@@ -643,7 +655,7 @@ function cancelViaSocket(socketPath, sessionId) {
 		let response = '';
 		socket.setEncoding('utf8');
 		socket.once('connect', () => {
-			socket.end(`${JSON.stringify({ sessionId })}\n`);
+			socket.write(`${JSON.stringify({ sessionId })}\n`);
 		});
 		socket.on('data', chunk => {
 			response += chunk;
@@ -665,7 +677,7 @@ function controlRequest(socketPath, payload) {
 		let response = '';
 		socket.setEncoding('utf8');
 		socket.once('connect', () => {
-			socket.end(`${JSON.stringify(payload)}\n`);
+			socket.write(`${JSON.stringify(payload)}\n`);
 		});
 		socket.on('data', chunk => {
 			response += chunk;
@@ -675,7 +687,11 @@ function controlRequest(socketPath, payload) {
 			try {
 				resolve(JSON.parse(response));
 			} catch (error) {
-				reject(error);
+				reject(new Error(
+					`Unexpected control response for ${JSON.stringify(payload)} on ${socketPath}: `
+					+ `${JSON.stringify(response)}`,
+					{ cause: error },
+				));
 			}
 		});
 	});

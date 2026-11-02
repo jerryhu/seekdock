@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	RUNTIME_TARGETS,
@@ -14,7 +15,10 @@ const targets = requested === 'all'
 	? RUNTIME_TARGETS
 	: [resolveRuntimeTarget(requested)];
 const packageJson = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
-const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+// Node refuses to spawn `.cmd` shims without a shell on Windows (EINVAL), and the
+// pinned devDependency must win over whatever `npx` would fetch.
+const require = createRequire(import.meta.url);
+const vsceBin = join(dirname(require.resolve('@vscode/vsce/package.json')), 'vsce');
 
 for (const target of targets) {
 	const vscodeTarget = VSCODE_TARGETS[target];
@@ -23,10 +27,9 @@ for (const target of targets) {
 	}
 	const output = resolve(root, `seekdock-${vscodeTarget}-${packageJson.version}.vsix`);
 	const result = spawnSync(
-		npx,
+		process.execPath,
 		[
-			'--yes',
-			'@vscode/vsce',
+			vsceBin,
 			'package',
 			'--readme-path',
 			'MARKETPLACE_README.md',

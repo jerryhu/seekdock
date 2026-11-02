@@ -20,30 +20,46 @@ export function apply(ctx) {
 		throw new Error('SeekDock: SEEKDOCK_SESSION_TITLE_SOCKET is not set.');
 	}
 
-	// Rename awaits the persistence barrier after the client's request FIN.
+	// Rename awaits the persistence barrier. Answer on the newline frame: on
+	// Windows named pipes a client FIN can close the writable side before the
+	// async response is sent, so never wait for `end`.
 	const server = createServer({ allowHalfOpen: true }, socket => {
 		let input = '';
+		let answered = false;
 		socket.setEncoding('utf8');
 		socket.on('error', error => {
 			ctx.logger.warn(`SeekDock session title socket error: ${String(error)}`);
 		});
-		socket.on('data', chunk => {
-			input += chunk;
-		});
-		socket.on('end', () => {
+		const answer = () => {
+			if (answered) {
+				return;
+			}
+			const boundary = input.indexOf('\n');
+			if (boundary < 0 && !socket.readableEnded) {
+				return;
+			}
+			answered = true;
+			const requestText = boundary < 0 ? input : input.slice(0, boundary);
 			void (async () => {
 				let response;
 				try {
-					const request = JSON.parse(input);
+					const request = JSON.parse(requestText);
 					response = request?.action === 'wait'
 						? await waitForSessionTitle(ctx, request)
 						: await renameSession(ctx, request);
 				} catch (error) {
 					response = { ok: false, message: errorMessage(error) };
 				}
-				socket.end(`${JSON.stringify(response)}\n`);
+				if (!socket.destroyed) {
+					socket.end(`${JSON.stringify(response)}\n`);
+				}
 			})();
+		};
+		socket.on('data', chunk => {
+			input += chunk;
+			answer();
 		});
+		socket.on('end', answer);
 	});
 
 	ctx.effect(() => (async () => {

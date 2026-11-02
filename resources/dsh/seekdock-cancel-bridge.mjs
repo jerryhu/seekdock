@@ -16,19 +16,32 @@ export function apply(ctx) {
 		throw new Error('SeekDock: SEEKDOCK_CANCEL_SOCKET is not set.');
 	}
 
-	const server = createServer(socket => {
+	// Answer on the newline frame. On Windows named pipes a client FIN can close
+	// the writable side before the response is sent, so never wait for `end`.
+	const server = createServer({ allowHalfOpen: true }, socket => {
 		let input = '';
+		let answered = false;
 		socket.setEncoding('utf8');
 		socket.on('error', error => {
 			ctx.logger.warn(`SeekDock cancel socket error: ${String(error)}`);
 		});
+		const answer = () => {
+			if (answered) {
+				return;
+			}
+			const boundary = input.indexOf('\n');
+			if (boundary < 0 && !socket.readableEnded) {
+				return;
+			}
+			answered = true;
+			const requestText = boundary < 0 ? input : input.slice(0, boundary);
+			socket.end(`${JSON.stringify(cancel(ctx, requestText))}\n`);
+		};
 		socket.on('data', chunk => {
 			input += chunk;
+			answer();
 		});
-		socket.on('end', () => {
-			const response = cancel(ctx, input);
-			socket.end(`${JSON.stringify(response)}\n`);
-		});
+		socket.on('end', answer);
 	});
 
 	ctx.effect(() => (async () => {

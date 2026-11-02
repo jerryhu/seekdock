@@ -583,6 +583,9 @@ export class HarnessRunner {
 		const agentsHome = join(homedir(), '.agents');
 		this.harness = new DeepSeekHarness({
 			cwd: this.options.cwd,
+			// The pkg-based Windows runtime resolves native-addon snapshots
+			// relative to the process cwd drive; pin it to SeekDock's own home.
+			processCwd: this.options.homePath,
 			dshBin: this.options.runtimeLauncherPath,
 			dshHome: this.options.dshHome,
 			env: {
@@ -920,7 +923,9 @@ function requestControl(
 		}, timeoutMs);
 		socket.setEncoding('utf8');
 		socket.once('connect', () => {
-			socket.end(`${JSON.stringify(payload)}\n`);
+			// Do not half-close: on Windows named pipes a FIN can close the
+			// writable side before the bridge sends its response.
+			socket.write(`${JSON.stringify(payload)}\n`);
 		});
 		socket.on('data', chunk => {
 			response += chunk;
@@ -971,7 +976,7 @@ function requestCancellation(
 		}, timeoutMs);
 		socket.setEncoding('utf8');
 		socket.once('connect', () => {
-			socket.end(`${JSON.stringify({ sessionId })}\n`);
+			socket.write(`${JSON.stringify({ sessionId })}\n`);
 		});
 		socket.on('data', chunk => {
 			response += chunk;

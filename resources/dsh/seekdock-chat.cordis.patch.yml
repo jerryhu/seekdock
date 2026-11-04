@@ -10,8 +10,22 @@
 # The SDK profile disables its first-prompt title provider because headless
 # clients do not need session titles. SeekDock does, so reuse that provider to
 # replace the deterministic first-prompt fallback with a concise model title.
+#
+# dsh-base caps that provider's input at 4 KiB measured against the whole first
+# human message, and an over-cap request fails outright instead of truncating:
+# a long first prompt kept the deterministic fallback title forever. 32 KiB
+# covers pasted first prompts while keeping the per-session title request
+# bounded. A patch replaces the entry's `config` object wholesale rather than
+# merging it, so every dsh-base field is restated here and must be re-checked
+# against dsh-base on each DSH upgrade.
 - id: session-title-llm
   disabled: false
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 32768
+    maxOutputTokens: 4096
+    timeoutMs: 60000
 
 - id: skill-filesystem
   config:

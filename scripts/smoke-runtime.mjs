@@ -353,7 +353,15 @@ let harness = makeHarness();
 try {
 	const sessionId = 'seekdock-runtime-smoke';
 	const notifications = [];
-	const result = await harness.run('/smoke-skill /second-smoke-skill Reply with OK', {
+	// The first-prompt title provider measures its input against the whole first
+	// human message and fails instead of truncating, so keep this prompt well
+	// past the 4 KiB dsh-base default: the title assertion below then proves the
+	// overlay raises that cap rather than only serving short prompts.
+	const firstPrompt = [
+		'/smoke-skill /second-smoke-skill Reply with OK',
+		`Pasted context for the title input cap: ${'lorem ipsum dolor sit amet '.repeat(400)}`,
+	].join('\n');
+	const result = await harness.run(firstPrompt, {
 		sessionId,
 		onNotification: notification => notifications.push(notification),
 	});

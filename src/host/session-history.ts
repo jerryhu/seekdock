@@ -494,6 +494,22 @@ function readPlanModeEvent(event: SessionEvent): { seq: number; active: boolean 
 }
 
 /**
+ * Events that carry conversation work.
+ *
+ * Opening a persisted session resumes it, and renaming it appends a title
+ * event; both are stamped with the current time as well. Only counting this
+ * set keeps opening or renaming from reordering the history list.
+ */
+const CONVERSATION_EVENT_TYPES: ReadonlySet<string> = new Set([
+	'turn/start',
+	'turn/end',
+	'user/message',
+	'assistant/message',
+	'tool/call',
+	'tool/result',
+]);
+
+/**
  * Build a stable history row from immutable metadata and its event log.
  *
  * @param header - persisted session header.
@@ -510,15 +526,17 @@ export function summarizeSession(
 			&& event.data.source.kind === 'user'
 			&& contentText(event.data.content).trim().length > 0,
 	);
-	const latestTime = events.reduce(
-		(maximum, event) => Math.max(maximum, event.time),
+	const latestActivity = events.reduce(
+		(maximum, event) => (CONVERSATION_EVENT_TYPES.has(event.type)
+			? Math.max(maximum, event.time)
+			: maximum),
 		header.createdAt,
 	);
 	return {
 		id: header.id,
 		title: sessionTitle(events, defaultTitle),
 		createdAt: header.createdAt,
-		updatedAt: latestTime,
+		updatedAt: latestActivity,
 		messageCount: humanMessages.length,
 	};
 }

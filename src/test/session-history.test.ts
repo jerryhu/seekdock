@@ -411,7 +411,69 @@ suite('Session history', () => {
 			id: 'seekdock-renamed',
 			title: 'Renamed by user',
 			createdAt: 0,
-			updatedAt: 12,
+			// A rename is not conversation activity: the row keeps its message time.
+			updatedAt: 1,
+			messageCount: 1,
+		});
+	});
+
+	test('keeps the last activity time when a session is reopened', () => {
+		const header: SessionHeader = {
+			version: SESSION_FORMAT_VERSION,
+			id: SessionId('seekdock-reopened'),
+			createdAt: 0,
+			cwd: '/workspace',
+			isSeeded: false,
+		};
+		const events: SessionEvent[] = [
+			userMessage(1, 'Yesterday question'),
+			{
+				type: 'turn/start',
+				seq: SessionSeq(2),
+				time: 2,
+				data: { turn: 1 },
+			},
+			{
+				type: 'assistant/message',
+				seq: SessionSeq(3),
+				time: 3,
+				data: {
+					turn: 1,
+					step: 1,
+					message: {
+						id: MessageId('assistant-3'),
+						role: 'assistant',
+						source: {
+							kind: 'model',
+							provider: 'deepseek-official',
+							model: 'deepseek-v4-flash',
+						},
+						content: [{ type: 'text', text: 'Yesterday answer' }],
+					},
+					stream: [],
+				},
+				surfaceOp: 'append',
+			},
+			{
+				type: 'turn/end',
+				seq: SessionSeq(4),
+				time: 4,
+				data: { turn: 1, reason: { kind: 'completed' } },
+			},
+			// Resuming the session to read it appends this boundary marker now.
+			{
+				type: 'session/end-seed',
+				seq: SessionSeq(5),
+				time: 900,
+				data: {},
+			},
+		];
+
+		assert.deepStrictEqual(summarizeSession(header, events), {
+			id: 'seekdock-reopened',
+			title: 'Yesterday question',
+			createdAt: 0,
+			updatedAt: 4,
 			messageCount: 1,
 		});
 	});

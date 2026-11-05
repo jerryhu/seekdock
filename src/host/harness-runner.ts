@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, win32 } from 'node:path';
 import { DeepSeekHarness, RequestTimeoutError } from '@deepseek-ai/dsh-sdk-client';
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import {
@@ -583,9 +583,10 @@ export class HarnessRunner {
 		const agentsHome = join(homedir(), '.agents');
 		this.harness = new DeepSeekHarness({
 			cwd: this.options.cwd,
-			// The pkg-based Windows runtime resolves native-addon snapshots
-			// relative to the process cwd drive; pin it to SeekDock's own home.
-			processCwd: this.options.homePath,
+			// pkg mounts /snapshot on the process cwd drive and only extracts
+			// native addons from C:/V: snapshots. VS Code's Uri.fsPath lowercases
+			// the drive letter, so normalize it here.
+			processCwd: runtimeProcessCwd(this.options.homePath),
 			dshBin: this.options.runtimeLauncherPath,
 			dshHome: this.options.dshHome,
 			env: {
@@ -697,6 +698,34 @@ export async function startHarness(harness: HarnessStarter): Promise<void> {
 			);
 		}
 	}
+}
+
+/**
+ * Choose the runtime process cwd pkg's Windows snapshot loader can handle.
+ *
+ * pkg mounts `/snapshot` on the process cwd drive but extracts native addons
+ * only from `C:\snapshot`/`V:\snapshot`, comparing prefixes case-sensitively.
+ * VS Code's `Uri.fsPath` lowercases the drive letter, so passing the runtime
+ * home through unchanged made `koffi.node` load from `\?\c:\snapshot\...`.
+ *
+ * @param preferred - SeekDock runtime home, normally under the data root.
+ * @param platform - Node platform, injectable for tests.
+ * @returns the preferred path with an uppercase C: drive, or `C:\` elsewhere.
+ */
+export function runtimeProcessCwd(
+	preferred: string,
+	platform: NodeJS.Platform = process.platform,
+): string {
+	if (platform !== 'win32') {
+		return preferred;
+	}
+	const absolute = win32.resolve(preferred);
+	if (absolute.slice(0, 2).toUpperCase() === 'C:') {
+		return `C:${absolute.slice(2)}`;
+	}
+	// pkg never mounts the snapshot on another drive; keeping the runtime home
+	// there would leave koffi inside the virtual snapshot.
+	return 'C:\\';
 }
 
 function isAlreadyOpenError(error: unknown): boolean {

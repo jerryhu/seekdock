@@ -83,8 +83,6 @@ export const ru = {
 	planReviewTitle: 'Просмотр плана',
 	planReviewApprove: 'Утвердить план',
 	planReviewRequestChanges: 'Запросить изменения',
-	planReviewFeedback: 'Правки (попадут в поле ввода)',
-	planReviewFeedbackPlaceholder: 'Что изменить в плане?',
 	planReviewApproved: 'План утверждён',
 	planReviewChangesRequested: 'Запрошены изменения',
 	planReviewPreview: 'Просмотр Markdown',

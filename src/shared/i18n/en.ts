@@ -81,8 +81,6 @@ export const en = {
 	planReviewTitle: 'Plan review',
 	planReviewApprove: 'Approve plan',
 	planReviewRequestChanges: 'Request changes',
-	planReviewFeedback: 'Changes (fills the composer)',
-	planReviewFeedbackPlaceholder: 'What should the plan change?',
 	planReviewPreview: 'Preview Markdown',
 	planReviewApproved: 'Plan approved',
 	planReviewChangesRequested: 'Changes requested',

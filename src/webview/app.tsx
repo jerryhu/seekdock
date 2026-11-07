@@ -143,9 +143,6 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 		language: detectInitialLanguage(),
 	});
 	const [focusToken, setFocusToken] = useState(0);
-	// Text handed to the composer by another surface (a plan review's change
-	// request): the token makes repeated insertions of the same text distinct.
-	const [draftInsertion, setDraftInsertion] = useState<{ text: string; token: number }>();
 	const [activeRequestId, setActiveRequestId] = useState<string>();
 	const pendingWorkspaceDiffs = useRef(new Map<string, {
 		timer: number;
@@ -576,7 +573,6 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 	const answerPlanReview = (
 		review: PlanReview,
 		decision: PlanReviewAnswer,
-		feedback: string,
 	): void => {
 		vscode.postMessage({
 			type: 'planReviewResponse',
@@ -584,14 +580,6 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 			reviewId: review.id,
 			decision,
 		});
-		if (decision === 'request-changes' && feedback.length > 0) {
-			// The answer ends the reviewed turn, so the text the user typed
-			// becomes their next message instead of a hidden model input.
-			setDraftInsertion(current => ({
-				text: feedback,
-				token: (current?.token ?? 0) + 1,
-			}));
-		}
 	};
 
 	const openPlanPreview = (plan: PlanDocument): void => {
@@ -939,7 +927,6 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 				focusToken={focusToken}
 				initialDraft={initialDraft}
 				initialSkills={initialSkills}
-				{...(draftInsertion === undefined ? {} : { draftInsertion })}
 				files={ui.composerFiles}
 				pickingFiles={ui.pickingFiles}
 				{...(ui.fileSelectionError === undefined

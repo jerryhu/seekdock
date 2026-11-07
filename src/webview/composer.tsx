@@ -35,8 +35,6 @@ interface ComposerProps {
 	focusToken: number;
 	initialDraft: string;
 	initialSkills: readonly ComposerSkill[];
-	/** Text another surface hands over, e.g. a plan review's change request. */
-	draftInsertion?: { text: string; token: number };
 	files: readonly ComposerFile[];
 	pickingFiles: boolean;
 	fileSelectionError?: string;
@@ -84,7 +82,6 @@ export function Composer({
 	focusToken,
 	initialDraft,
 	initialSkills,
-	draftInsertion,
 	files,
 	pickingFiles,
 	fileSelectionError,
@@ -153,16 +150,6 @@ export function Composer({
 		}
 		fitTextareaToContent(element);
 	}, [text]);
-
-	useEffect(() => {
-		if (draftInsertion === undefined) {
-			return;
-		}
-		// Replace the draft instead of appending: the handed-over text is the
-		// whole message the user is about to send.
-		setText(draftInsertion.text);
-		input.current?.focus();
-	}, [draftInsertion]);
 
 	useEffect(() => {
 		if (!skillsOpen) {

@@ -83,8 +83,6 @@ export const ja = {
 	planReviewTitle: 'プランのレビュー',
 	planReviewApprove: 'プランを承認',
 	planReviewRequestChanges: '変更を依頼',
-	planReviewFeedback: '変更内容（入力欄に入ります）',
-	planReviewFeedbackPlaceholder: 'プランをどう変更しますか？',
 	planReviewApproved: 'プランを承認しました',
 	planReviewChangesRequested: '変更を依頼しました',
 	planReviewPreview: 'Markdown をプレビュー',

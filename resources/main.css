@@ -1834,28 +1834,6 @@ a:hover {
 	overflow-wrap: anywhere;
 }
 
-.plan-review-feedback {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	font-size: 11.5px;
-	color: var(--seek-muted);
-}
-
-.plan-review-feedback textarea {
-	min-height: 44px;
-	padding: 6px 8px;
-	color: var(--vscode-input-foreground, var(--vscode-foreground));
-	background: var(--vscode-input-background);
-	border: 1px solid var(--vscode-input-border, var(--seek-border));
-	border-radius: 4px;
-	resize: vertical;
-}
-
-.plan-review-feedback textarea::placeholder {
-	color: var(--vscode-input-placeholderForeground, var(--seek-muted));
-}
-
 .plan-review-actions {
 	display: flex;
 	flex-wrap: wrap;

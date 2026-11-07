@@ -11,9 +11,9 @@ import { Markdown } from './markdown.tsx';
  * Plan review card for DSH's `exit_plan_mode` question.
  *
  * Approving leaves plan mode for the next step; asking for changes ends the
- * reviewed turn, so the textarea's text goes back to the composer as the user's
- * own next message. A settled or replayed card folds to its title and opening
- * paragraph, and either state can open the plan as Markdown beside the chat.
+ * reviewed turn, and the user sends any revision as their own next message.
+ * A settled or replayed card folds to its title and opening paragraph, and
+ * either state can open the plan as Markdown beside the chat.
  */
 export function PlanReviewView({
 	review,
@@ -23,12 +23,11 @@ export function PlanReviewView({
 }: {
 	review: PlanReview;
 	onOpenLink: (url: string) => void;
-	onAnswer?: (decision: PlanReviewAnswer, feedback: string) => void;
+	onAnswer?: (decision: PlanReviewAnswer) => void;
 	onPreview: (plan: PlanDocument) => void;
 }): JSX.Element {
 	const { t } = useI18n();
 	const [sent, setSent] = useState(false);
-	const [feedback, setFeedback] = useState('');
 	// `undefined` follows the default: open while the review is live, folded on replay.
 	const [expanded, setExpanded] = useState<boolean | undefined>(undefined);
 	const decision = review.decision;
@@ -43,7 +42,7 @@ export function PlanReviewView({
 			return;
 		}
 		setSent(true);
-		onAnswer?.(value, feedback.trim());
+		onAnswer?.(value);
 	};
 
 	return (
@@ -73,20 +72,6 @@ export function PlanReviewView({
 							: <p className="plan-review-excerpt">{document.summary}</p>}
 					</div>
 				)}
-			{answering
-				? (
-					<label className="plan-review-feedback">
-						<span>{t('planReviewFeedback')}</span>
-						<textarea
-							value={feedback}
-							rows={2}
-							disabled={sent}
-							placeholder={t('planReviewFeedbackPlaceholder')}
-							onInput={event => setFeedback(event.currentTarget.value)}
-						/>
-					</label>
-				)
-				: null}
 			<div className="plan-review-actions">
 				<button
 					type="button"

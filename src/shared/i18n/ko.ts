@@ -83,8 +83,6 @@ export const ko = {
 	planReviewTitle: '계획 검토',
 	planReviewApprove: '계획 승인',
 	planReviewRequestChanges: '변경 요청',
-	planReviewFeedback: '변경 사항(입력창에 채워집니다)',
-	planReviewFeedbackPlaceholder: '계획을 어떻게 바꿀까요?',
 	planReviewApproved: '계획이 승인되었습니다',
 	planReviewChangesRequested: '변경을 요청했습니다',
 	planReviewPreview: 'Markdown 미리보기',

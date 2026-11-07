@@ -83,8 +83,6 @@ export const es = {
 	planReviewTitle: 'Revisión del plan',
 	planReviewApprove: 'Aprobar plan',
 	planReviewRequestChanges: 'Solicitar cambios',
-	planReviewFeedback: 'Cambios (van al cuadro de texto)',
-	planReviewFeedbackPlaceholder: '¿Qué debe cambiar el plan?',
 	planReviewApproved: 'Plan aprobado',
 	planReviewChangesRequested: 'Cambios solicitados',
 	planReviewPreview: 'Vista previa de Markdown',

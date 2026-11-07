@@ -83,8 +83,6 @@ export const zhCn = {
 	planReviewTitle: '计划审阅',
 	planReviewApprove: '批准计划',
 	planReviewRequestChanges: '要求修改',
-	planReviewFeedback: '修改意见（会填入输入框）',
-	planReviewFeedbackPlaceholder: '希望计划怎么改？',
 	planReviewApproved: '计划已批准',
 	planReviewChangesRequested: '已要求修改',
 	planReviewPreview: '预览 Markdown',

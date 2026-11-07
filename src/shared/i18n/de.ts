@@ -83,8 +83,6 @@ export const de = {
 	planReviewTitle: 'Planüberprüfung',
 	planReviewApprove: 'Plan genehmigen',
 	planReviewRequestChanges: 'Änderungen anfordern',
-	planReviewFeedback: 'Änderungen (landen im Eingabefeld)',
-	planReviewFeedbackPlaceholder: 'Was soll am Plan geändert werden?',
 	planReviewApproved: 'Plan genehmigt',
 	planReviewChangesRequested: 'Änderungen angefordert',
 	planReviewPreview: 'Markdown-Vorschau',

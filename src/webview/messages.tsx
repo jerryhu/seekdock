@@ -48,7 +48,6 @@ interface MessageListProps {
 	onPlanReviewAnswer: (
 		review: PlanReview,
 		decision: PlanReviewAnswer,
-		feedback: string,
 	) => void;
 	onPreviewPlan: (plan: PlanDocument) => void;
 	onRequestWorkspaceDiff: (
@@ -351,10 +350,9 @@ function AssistantMessageView({
 									review={entry.review}
 									onOpenLink={onOpenLink}
 									onPreview={onPreviewPlan}
-									onAnswer={(decision, feedback) => onPlanReviewAnswer(
+									onAnswer={decision => onPlanReviewAnswer(
 										entry.review,
 										decision,
-										feedback,
 									)}
 								/>
 							);

@@ -83,8 +83,6 @@ export const zhTw = {
 	planReviewTitle: '計畫審閱',
 	planReviewApprove: '批准計畫',
 	planReviewRequestChanges: '要求修改',
-	planReviewFeedback: '修改意見（會填入輸入框）',
-	planReviewFeedbackPlaceholder: '希望計畫怎麼改？',
 	planReviewApproved: '計畫已批准',
 	planReviewChangesRequested: '已要求修改',
 	planReviewPreview: '預覽 Markdown',

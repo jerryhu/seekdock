@@ -21,11 +21,13 @@ import {
 import { buildPromptWithFiles } from '../shared/composer-files.ts';
 import type { ComposerFile, PermissionCatalog } from '../shared/rpc.ts';
 import type { ModelSelection } from '../shared/model-selection.ts';
+import type { WorkspaceOption } from '../shared/workspaces.ts';
 import { ComposerAddMenu } from './composer-add-menu.tsx';
 import { useI18n } from './i18n-context.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { PermissionPicker } from './permission-picker.tsx';
 import type { VsCodeApi } from './vscode-api.ts';
+import { WorkspacePicker } from './workspace-picker.tsx';
 
 interface ComposerProps {
 	busy: boolean;
@@ -60,6 +62,11 @@ interface ComposerProps {
 	modelSelectionError?: string;
 	settingModelSelection: boolean;
 	onSelectModelSelection: (selection: ModelSelection) => void;
+	workspaceOptions: readonly WorkspaceOption[];
+	workspaceCurrentId: string;
+	workspacePendingId?: string;
+	workspaceError?: string;
+	onSelectWorkspace: (id: string) => void;
 	onSend: (text: string) => void;
 	onStop: () => void;
 	vscode: VsCodeApi;
@@ -107,6 +114,11 @@ export function Composer({
 	modelSelectionError,
 	settingModelSelection,
 	onSelectModelSelection,
+	workspaceOptions,
+	workspaceCurrentId,
+	workspacePendingId,
+	workspaceError,
+	onSelectWorkspace,
 	onSend,
 	onStop,
 	vscode,
@@ -197,6 +209,10 @@ export function Composer({
 		queueMicrotask(() => input.current?.focus());
 	};
 
+	// Both changes recycle the runtime; every control that would start or
+	// reconfigure work must wait for the new process to become ready.
+	const reconfiguring = settingModelSelection || workspacePendingId !== undefined;
+
 	const submit = (): void => {
 		const promptText = buildPromptWithSkills(
 			text,
@@ -205,7 +221,7 @@ export function Composer({
 		const prompt = buildPromptWithFiles(promptText, files);
 		if (prompt.length === 0
 			|| busy
-			|| settingModelSelection
+			|| reconfiguring
 			|| !configured
 			|| !runtimeReady) {
 			return;
@@ -219,7 +235,7 @@ export function Composer({
 
 	const planModeEnabled = planModePending === true ? !planModeActive : planModeActive;
 	const addMenuDisabled = busy
-		|| settingModelSelection
+		|| reconfiguring
 		|| !configured
 		|| !runtimeReady;
 	const sendLabel = cancelling
@@ -236,6 +252,21 @@ export function Composer({
 				submit();
 			}}
 		>
+			{workspaceOptions.length === 0
+				? null
+				: (
+					<div className="composer-workspace">
+						<WorkspacePicker
+							options={workspaceOptions}
+							currentId={workspaceCurrentId}
+							{...(workspacePendingId === undefined
+								? {}
+								: { pendingId: workspacePendingId })}
+							disabled={busy || reconfiguring}
+							onSelect={onSelectWorkspace}
+						/>
+					</div>
+				)}
 			<div className="composer-box" ref={box}>
 				{skillsOpen
 					? (
@@ -365,7 +396,7 @@ export function Composer({
 							? t('planPromptPlaceholder')
 							: t('promptPlaceholder')}
 					aria-label={t('promptInputLabel')}
-					disabled={!configured || !runtimeReady || settingModelSelection}
+					disabled={!configured || !runtimeReady || reconfiguring}
 					onInput={(event) => {
 						const value = event.currentTarget.value;
 						const query = slashQueryFromDraft(value);
@@ -460,7 +491,7 @@ export function Composer({
 									catalog={permissionCatalog}
 									{...(permissionCurrent === undefined ? {} : { current: permissionCurrent })}
 									{...(permissionPending === undefined ? {} : { pending: permissionPending })}
-									disabled={busy || settingModelSelection}
+									disabled={busy || reconfiguring}
 									setting={settingPermission}
 									onSelect={onSelectPermission}
 								/>
@@ -473,7 +504,7 @@ export function Composer({
 									aria-label={t('planModeActiveClose')}
 									data-tooltip={t('closePlanMode')}
 									aria-busy={settingPlanMode}
-									disabled={busy || settingPlanMode}
+									disabled={busy || settingPlanMode || reconfiguring}
 									onClick={() => onSetPlanMode(false)}
 								>
 									<span className="plan-mode-chip-glyph" aria-hidden="true">
@@ -494,7 +525,7 @@ export function Composer({
 					<div className="composer-trailing">
 						<ModelPicker
 							selection={modelSelection}
-							disabled={busy || settingPermission}
+							disabled={busy || settingPermission || reconfiguring}
 							setting={settingModelSelection}
 							onSelect={onSelectModelSelection}
 						/>
@@ -506,7 +537,7 @@ export function Composer({
 									&& ((text.trim().length === 0
 											&& files.length === 0
 											&& selectedSkills.length === 0)
-										|| settingModelSelection
+										|| reconfiguring
 										|| !configured
 										|| !runtimeReady))}
 							aria-label={sendLabel}
@@ -539,6 +570,9 @@ export function Composer({
 			{modelSelectionError === undefined
 				? null
 				: <div className="composer-notice" role="alert">{modelSelectionError}</div>}
+			{workspaceError === undefined
+				? null
+				: <div className="composer-notice" role="alert">{workspaceError}</div>}
 		</form>
 	);
 }

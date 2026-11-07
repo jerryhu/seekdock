@@ -16,6 +16,10 @@ import {
 	type WorkspaceChangeSet,
 	type WorkspaceFileDiff,
 } from './workspace-changes.ts';
+import {
+	isWorkspaceSelectionState,
+	type WorkspaceOption,
+} from './workspaces.ts';
 
 /** Lifecycle of one tool invocation shown in the chat timeline. */
 export type ToolCallStatus = 'running' | 'completed' | 'error' | 'awaiting-approval';
@@ -179,6 +183,7 @@ export type WebviewToHostMessage =
 		model: string;
 		reasoningEffort: string;
 	}
+	| { type: 'setWorkspace'; requestId: string; workspaceId: string }
 	| {
 		type: 'approvalResponse';
 		requestId: string;
@@ -328,6 +333,13 @@ export type HostToWebviewMessage =
 		error?: string;
 	}
 	| {
+		type: 'workspaceState';
+		options: readonly WorkspaceOption[];
+		currentId: string;
+		pendingId?: string;
+		error?: string;
+	}
+	| {
 		type: 'workspaceChanges';
 		requestId: string;
 		changes: WorkspaceChangeSet;
@@ -393,6 +405,8 @@ export function isWebviewToHostMessage(value: unknown): value is WebviewToHostMe
 			return isNonEmptyString(value.requestId)
 				&& isNonEmptyString(value.model)
 				&& isNonEmptyString(value.reasoningEffort);
+		case 'setWorkspace':
+			return isNonEmptyString(value.requestId) && isNonEmptyString(value.workspaceId);
 		case 'approvalResponse':
 			return isNonEmptyString(value.requestId)
 				&& isNonEmptyString(value.approvalId)
@@ -538,6 +552,8 @@ export function isHostToWebviewMessage(value: unknown): value is HostToWebviewMe
 		case 'modelSelectionState':
 			return isModelSelection(value.current)
 				&& (value.error === undefined || typeof value.error === 'string');
+		case 'workspaceState':
+			return isWorkspaceSelectionState(value);
 		case 'workspaceChanges':
 			return isNonEmptyString(value.requestId)
 				&& isWorkspaceChangeSet(value.changes);

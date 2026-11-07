@@ -146,6 +146,16 @@ suite('RPC contract', () => {
 			reasoningEffort: 'low',
 		}));
 		assert.ok(isWebviewToHostMessage({
+			type: 'setWorkspace',
+			requestId: 'request-9-workspace',
+			workspaceId: 'file:///repo/one',
+		}));
+		assert.ok(!isWebviewToHostMessage({
+			type: 'setWorkspace',
+			requestId: 'request-9-workspace',
+			workspaceId: '',
+		}));
+		assert.ok(isWebviewToHostMessage({
 			type: 'approvalResponse',
 			requestId: 'request-10',
 			approvalId: 'approval-1',
@@ -481,10 +491,47 @@ suite('RPC contract', () => {
 				type: 'modelSelectionState',
 				current: { model: 'deepseek-v4-pro', reasoningEffort: 'high' },
 			},
+			{
+				type: 'workspaceState',
+				options: [{
+					id: 'file:///repo/one',
+					name: 'one',
+					path: '/repo/one',
+					kind: 'folder',
+				}],
+				currentId: 'file:///repo/one',
+			},
 		] as const;
 		for (const message of stream) {
 			assert.ok(isHostToWebviewMessage(message), `rejected ${message.type}`);
 		}
+		assert.ok(!isHostToWebviewMessage({
+			type: 'workspaceState',
+			options: [],
+			currentId: 'file:///repo/one',
+		}));
+		assert.ok(!isHostToWebviewMessage({
+			type: 'workspaceState',
+			options: [{
+				id: 'file:///repo/one',
+				name: 'one',
+				path: '/repo/one',
+				kind: 'session',
+			}],
+			currentId: 'file:///repo/one',
+		}));
+		assert.ok(isHostToWebviewMessage({
+			type: 'workspaceState',
+			options: [{
+				id: 'file:///repo/one',
+				name: 'one',
+				path: '/repo/one',
+				kind: 'folder',
+			}],
+			currentId: 'file:///repo/one',
+			pendingId: 'file:///repo/two',
+			error: 'switching',
+		}));
 		assert.ok(isHostToWebviewMessage({
 			type: 'permissionState',
 			catalog: null,

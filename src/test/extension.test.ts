@@ -1,9 +1,12 @@
 import * as assert from 'node:assert';
+import { homedir } from 'node:os';
 
 // You can import and use all API from the 'vscode' module
 // as well as import your extension to test it
 import * as vscode from 'vscode';
 import { resolveDshRuntime } from '../host/dsh-runtime.ts';
+import { sameWorkspacePath } from '../host/workspace-selection.ts';
+import type { WorkspaceOption } from '../shared/workspaces.ts';
 
 const VIEW_ID = 'seekdock.chatView';
 const CONTAINER_COMMAND_ID = 'workbench.view.extension.seekdockChat';
@@ -29,6 +32,9 @@ interface Diagnostics {
 	settingsPanelResolved?: boolean;
 	openPath?: 'none' | 'focusView' | 'containerFallback';
 	dataRoot?: string;
+	workspaceCwd?: string;
+	workspaceCurrentId?: string;
+	workspaceOptions?: readonly WorkspaceOption[];
 	migratedFrom?: string;
 }
 
@@ -74,6 +80,36 @@ suite('Extension Test Suite', () => {
 			!diagnostics.dataRoot?.includes('globalStorage'),
 			'durable data is still stored inside the extension storage, which VS Code deletes on uninstall',
 		);
+	});
+
+	test('compares working-directory paths canonically', () => {
+		assert.ok(sameWorkspacePath('/repo/one/', '/repo/./one'));
+		assert.ok(!sameWorkspacePath('/repo/one', '/repo/two'));
+	});
+
+	test('reports one working directory that matches the picker options', async () => {
+		const diagnostics = await readDiagnostics();
+		assert.ok(diagnostics.workspaceCwd, 'no working directory in the diagnostics');
+		assert.ok(
+			diagnostics.workspaceOptions !== undefined
+				&& diagnostics.workspaceOptions.length > 0,
+			'the picker has no working-directory options',
+		);
+
+		const current = diagnostics.workspaceOptions?.find(
+			option => option.id === diagnostics.workspaceCurrentId,
+		);
+		assert.ok(current, 'the current option is missing from the picker');
+		assert.strictEqual(current.path, diagnostics.workspaceCwd);
+
+		const folders = vscode.workspace.workspaceFolders ?? [];
+		if (folders.length === 0) {
+			assert.strictEqual(
+				diagnostics.workspaceCwd,
+				homedir(),
+				'without a workspace folder the fallback must be the user home',
+			);
+		}
 	});
 
 	test('sidebar view and container command are registered', async () => {

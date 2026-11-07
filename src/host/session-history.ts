@@ -31,6 +31,8 @@ export interface LoadedSession {
 	sessionId: string;
 	title: string;
 	messages: readonly TranscriptMessage[];
+	/** Working directory recorded in the session header when the log has one. */
+	cwd?: string;
 }
 
 interface SessionHistoryOptions {
@@ -92,6 +94,7 @@ export class SessionHistoryStore {
 				sessionId: id,
 				title,
 				messages: transcriptFromSessionEvents(snapshot.events, changesBySeq),
+				...(handle.header.cwd === undefined ? {} : { cwd: handle.header.cwd }),
 			};
 		} finally {
 			await handle.close();

@@ -38,6 +38,12 @@ import { createWebviewDocument } from './host/webview-document.ts';
 import { WorkspaceChangeStore } from './host/workspace-change-store.ts';
 import { WorkspaceDiffDocuments } from './host/workspace-diff-documents.ts';
 import {
+	canonicalWorkspacePath,
+	isExistingDirectory,
+	sameWorkspacePath,
+	workspaceFolderRefs,
+} from './host/workspace-selection.ts';
+import {
 	detectLanguage,
 	isLanguage,
 	LocalizedError,
@@ -80,6 +86,10 @@ import {
 	type WebviewToHostMessage,
 } from './shared/rpc.ts';
 import type { WorkspaceFileDiff } from './shared/workspace-changes.ts';
+import {
+	buildWorkspaceOptions,
+	type WorkspaceOption,
+} from './shared/workspaces.ts';
 
 /** View id declared under contributes.views in package.json. */
 const VIEW_ID = 'seekdock.chatView';
@@ -155,6 +165,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	private modelSelection: ModelSelection;
 	private modelSelectionError: string | undefined;
 	private language: Language;
+	private readonly defaultWorkspacePath: string;
+	private workspaceCwd: string;
+	private workspaceFolderPaths: readonly string[];
+	private workspacePendingId: string | undefined;
+	private workspaceError: string | undefined;
+	private workspaceSwitchTask: Promise<void> | undefined;
+	private readonly workspaceFolderListener: vscode.Disposable;
 
 	constructor(
 		private readonly extensionUri: vscode.Uri,
@@ -170,6 +187,16 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		this.language = isLanguage(storedLanguage)
 			? storedLanguage
 			: detectLanguage(vscode.env.language);
+		// The composer follows the VS Code folders the user chose to open. With
+		// none open there is no project to anchor the agent to, so the user's home
+		// directory becomes the fallback workspace.
+		this.defaultWorkspacePath = canonicalWorkspacePath(homedir());
+		const folders = workspaceFolderRefs();
+		this.workspaceFolderPaths = folders.map(folder => folder.path);
+		this.workspaceCwd = this.workspaceFolderPaths[0] ?? this.defaultWorkspacePath;
+		this.workspaceFolderListener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+			void this.handleWorkspaceFoldersChanged();
+		});
 		this.promptStore = new SystemPromptStore(
 			vscode.Uri.joinPath(extensionUri, 'resources', 'default-system-prompt.md').fsPath,
 			vscode.Uri.joinPath(storageUri, 'active-system-prompt.md').fsPath,
@@ -296,6 +323,24 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		return this.language;
 	}
 
+	/**
+	 * @returns the working directory and picker options; the diagnostics
+	 * command exposes it so integration tests can assert both stay aligned.
+	 */
+	workspaceSelection(): {
+		cwd: string;
+		currentId: string;
+		options: readonly WorkspaceOption[];
+	} {
+		const options = this.workspaceOptions();
+		const current = options.find(option => option.path === this.workspaceCwd) ?? options[0];
+		return {
+			cwd: this.workspaceCwd,
+			currentId: current.id,
+			options,
+		};
+	}
+
 	/** Persist a prompt override and restart DSH with the new effective prompt. */
 	async saveSystemPrompt(prompt: string): Promise<void> {
 		if (this.runner?.busy) {
@@ -321,6 +366,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	}
 
 	dispose(): void {
+		this.workspaceFolderListener.dispose();
 		this.settingsPanel?.dispose();
 		this.settingsPanel = undefined;
 		this.workspaceDiffs.dispose();
@@ -406,6 +452,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			case 'setModelSelection':
 				await this.setModelSelection(message);
 				break;
+			case 'setWorkspace':
+				await this.setWorkspace(message);
+				break;
 			case 'approvalResponse':
 				await this.answerApproval(message);
 				break;
@@ -473,6 +522,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			this.planModeActive = false;
 			this.planModePending = undefined;
 			this.planModeError = undefined;
+			// Replaying a stored session is a read-only log projection: render it
+			// before touching the runtime, otherwise opening a session from another
+			// working directory waits for a full process recycle.
 			await this.postMessage({
 				type: 'sessionLoaded',
 				requestId: message.requestId,
@@ -481,6 +533,23 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 				messages: loaded.messages,
 			});
 			await this.postSessionHistory();
+			const sessionCwd = loaded.cwd;
+			if (sessionCwd !== undefined
+				&& !sameWorkspacePath(sessionCwd, this.workspaceCwd)
+				&& await isExistingDirectory(sessionCwd)) {
+				// DSH resumes a persisted session under its own header cwd, so the
+				// transcript and the session's permissions stay usable. Align the
+				// runtime in the background for workspace-scoped skills/MCP and for
+				// the next new session.
+				void this.runWorkspaceSwitch(sessionCwd, { startNewChat: false })
+					.catch(error => {
+						console.error(
+							'SeekDock: failed to align the runtime with the loaded session',
+							error,
+						);
+					});
+				return;
+			}
 			await this.prepareLoadedSession(loaded.sessionId);
 		} catch (error) {
 			await this.postMessage({
@@ -488,6 +557,176 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 				requestId: message.requestId,
 				message: formatError(error, ''),
 			});
+		}
+	}
+
+	/** Apply the working directory chosen in the composer. */
+	private async setWorkspace(
+		message: Extract<WebviewToHostMessage, { type: 'setWorkspace' }>,
+	): Promise<void> {
+		if (this.runner?.busy) {
+			this.workspaceError = translate(this.language, 'hostBusyWorkspace');
+			await this.postWorkspaceState();
+			return;
+		}
+		if (this.runtimeStatus === 'initializing' || this.workspaceSwitchTask !== undefined) {
+			this.workspaceError = translate(this.language, 'hostRuntimeNotReadyWorkspace');
+			await this.postWorkspaceState();
+			return;
+		}
+		const target = this.workspaceOptions().find(option => option.id === message.workspaceId);
+		if (target === undefined || !(await isExistingDirectory(target.path))) {
+			this.workspaceError = translate(this.language, 'hostWorkspaceUnavailable');
+			await this.postWorkspaceState();
+			return;
+		}
+		if (sameWorkspacePath(target.path, this.workspaceCwd)) {
+			this.workspaceError = undefined;
+			await this.postWorkspaceState();
+			return;
+		}
+		await this.runWorkspaceSwitch(target.path, { startNewChat: true });
+	}
+
+	/**
+	 * Serialize directory changes: each one restarts the runtime, and two
+	 * overlapping restarts would install a runtime for the wrong directory.
+	 */
+	private async runWorkspaceSwitch(
+		path: string,
+		options: { startNewChat: boolean },
+	): Promise<void> {
+		// A resumed session or a folder change can arrive while a picker switch
+		// is still restarting the runtime; adopt only after that switch settles.
+		await this.workspaceSwitchTask;
+		if (sameWorkspacePath(path, this.workspaceCwd)) {
+			return;
+		}
+		const task = this.switchWorkingDirectory(path, options);
+		this.workspaceSwitchTask = task;
+		try {
+			await task;
+		} finally {
+			if (this.workspaceSwitchTask === task) {
+				this.workspaceSwitchTask = undefined;
+			}
+		}
+	}
+
+	/**
+	 * Move the runtime to another directory. DSH binds a session's sandbox root
+	 * to its creation cwd, so the current conversation cannot follow the change;
+	 * the caller decides whether to start a new chat.
+	 */
+	private async switchWorkingDirectory(
+		path: string,
+		options: { startNewChat: boolean },
+	): Promise<void> {
+		this.workspaceCwd = canonicalWorkspacePath(path);
+		this.workspaceError = undefined;
+		this.workspacePendingId = this.currentWorkspaceOption().id;
+		await this.postWorkspaceState();
+		try {
+			if (options.startNewChat) {
+				this.resetActiveSessionState();
+				await this.postMessage({ type: 'newChat' });
+				await this.postSessionHistory();
+			}
+			const hadRuntime = this.runner !== undefined || this.runtimeTask !== undefined;
+			try {
+				await this.stopRuntimeForReconfiguration();
+			} finally {
+				// Even a failed close leaves no usable runtime for the old cwd.
+				this.runner = undefined;
+				this.runnerInitialization = undefined;
+			}
+			if (hadRuntime) {
+				await this.restartRuntimeFromStorage();
+			}
+			await this.postPermissionState();
+			await this.postPlanModeState();
+			await this.refreshComposerSkillsAfterWorkspaceChange();
+		} catch (error) {
+			this.workspaceError = formatError(error, '');
+			console.error('SeekDock: failed to switch the working directory', error);
+		} finally {
+			this.workspacePendingId = undefined;
+			await this.postWorkspaceState();
+			await this.postStateSafely();
+		}
+	}
+
+	/** Keep the picker aligned when VS Code opens, closes, or reorders folders. */
+	private async handleWorkspaceFoldersChanged(): Promise<void> {
+		const previousFolders = this.workspaceFolderPaths;
+		const folders = workspaceFolderRefs();
+		this.workspaceFolderPaths = folders.map(folder => folder.path);
+		if (this.workspaceSwitchTask !== undefined) {
+			// The in-flight switch reads the folder list again when it settles.
+			return;
+		}
+		const wasFolder = previousFolders.some(path => sameWorkspacePath(path, this.workspaceCwd));
+		const isFolder = this.workspaceFolderPaths.some(
+			path => sameWorkspacePath(path, this.workspaceCwd),
+		);
+		const wasFallback = previousFolders.length === 0
+			&& sameWorkspacePath(this.workspaceCwd, this.defaultWorkspacePath);
+		if (!isFolder && (wasFolder || (wasFallback && this.workspaceFolderPaths.length > 0))) {
+			if (this.runner?.busy) {
+				// Never interrupt a running turn; the picker keeps showing the
+				// directory that is still in use.
+				await this.postWorkspaceState();
+				return;
+			}
+			await this.runWorkspaceSwitch(
+				this.workspaceFolderPaths[0] ?? this.defaultWorkspacePath,
+				{ startNewChat: true },
+			);
+			return;
+		}
+		await this.postWorkspaceState();
+	}
+
+	/** @returns the picker options for the open folders and current directory. */
+	private workspaceOptions(): readonly WorkspaceOption[] {
+		return buildWorkspaceOptions(
+			workspaceFolderRefs(),
+			this.workspaceCwd,
+			this.defaultWorkspacePath,
+		);
+	}
+
+	/** @returns the option describing the directory the runtime uses now. */
+	private currentWorkspaceOption(): WorkspaceOption {
+		const options = this.workspaceOptions();
+		return options.find(option => option.path === this.workspaceCwd) ?? options[0];
+	}
+
+	private async postWorkspaceState(): Promise<void> {
+		const options = this.workspaceOptions();
+		const current = options.find(option => option.path === this.workspaceCwd) ?? options[0];
+		await this.postMessage({
+			type: 'workspaceState',
+			options,
+			currentId: current.id,
+			...(this.workspacePendingId === undefined
+				? {}
+				: { pendingId: this.workspacePendingId }),
+			...(this.workspaceError === undefined ? {} : { error: this.workspaceError }),
+		});
+	}
+
+	private async refreshComposerSkillsAfterWorkspaceChange(): Promise<void> {
+		if (!this.runtimeReady()) {
+			return;
+		}
+		try {
+			await this.postComposerSkillCatalog(await this.getSkillCatalog());
+		} catch (error) {
+			console.warn(
+				'SeekDock: failed to refresh the skill catalog after a directory change',
+				error,
+			);
 		}
 	}
 
@@ -889,29 +1128,24 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		message: Extract<WebviewToHostMessage, { type: 'pickFiles' }>,
 	): Promise<void> {
 		try {
-			const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+			const workspaceRoot = this.workspaceRoot();
 			const selected = await vscode.window.showOpenDialog({
 				canSelectFiles: true,
 				canSelectFolders: false,
 				canSelectMany: true,
 				openLabel: translate(this.language, 'hostAddFileDialogButton'),
 				title: translate(this.language, 'hostAddFileDialogTitle'),
-				...(workspaceRoot === undefined
-					? {}
-					: { defaultUri: vscode.Uri.file(workspaceRoot) }),
+				defaultUri: vscode.Uri.file(workspaceRoot),
 			});
 			const files: ComposerFile[] = [];
 			const seen = new Set<string>();
 			for (const uri of selected ?? []) {
 				const absolutePath = uri.fsPath;
-				let path = workspaceRoot === undefined
-					? absolutePath
-					: relative(workspaceRoot, absolutePath);
-				if (workspaceRoot !== undefined
-					&& (path.length === 0
-						|| isAbsolute(path)
-						|| path === '..'
-						|| path.startsWith(`..${sep}`))) {
+				let path = relative(workspaceRoot, absolutePath);
+				if (path.length === 0
+					|| isAbsolute(path)
+					|| path === '..'
+					|| path.startsWith(`..${sep}`)) {
 					path = absolutePath;
 				}
 				path = path.split(sep).join('/');
@@ -960,7 +1194,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		return {
 			roots: {
 				workspace: join(
-					vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(),
+					this.workspaceRoot(),
 					'.agents',
 					'skills',
 				),
@@ -1857,8 +2091,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		return this.runnerInitialization;
 	}
 
+	/** @returns the directory the runtime uses for new sessions and tools. */
 	private workspaceRoot(): string {
-		return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+		return this.workspaceCwd;
 	}
 
 	private assertMcpConfigurationEditable(): void {
@@ -2079,6 +2314,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 
 	private async syncWebviewState(): Promise<void> {
 		await this.postState();
+		await this.postWorkspaceState();
 		await this.postSessionHistory();
 		if (this.runtimeReady()) {
 			await this.refreshPermissionState();
@@ -2208,15 +2444,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Not declared in package.json; integration tests use it to assert that the view really opened.
 	context.subscriptions.push(vscode.commands.registerCommand(
 		'seekdock._diagnostics',
-		() => ({
-			chatViewResolved: provider.resolved,
-			settingsPanelResolved: provider.settingsResolved,
-			openPath,
-			dataRoot: dataRoot.root,
-			...(dataRoot.migratedFrom === undefined
-				? {}
-				: { migratedFrom: dataRoot.migratedFrom }),
-		})
+		() => {
+			const workspace = provider.workspaceSelection();
+			return {
+				chatViewResolved: provider.resolved,
+				settingsPanelResolved: provider.settingsResolved,
+				openPath,
+				dataRoot: dataRoot.root,
+				workspaceCwd: workspace.cwd,
+				workspaceCurrentId: workspace.currentId,
+				workspaceOptions: workspace.options,
+				...(dataRoot.migratedFrom === undefined
+					? {}
+					: { migratedFrom: dataRoot.migratedFrom }),
+			};
+		}
 	));
 }
 

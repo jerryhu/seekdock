@@ -31,6 +31,7 @@ import {
 	type ModelSelection,
 } from '../shared/model-selection.ts';
 import type { ComposerSkill } from '../shared/composer-skills.ts';
+import type { WorkspaceOption } from '../shared/workspaces.ts';
 import {
 	createTranslator,
 	type Language,
@@ -91,6 +92,10 @@ interface UiState {
 	modelSelection: ModelSelection;
 	modelSelectionError?: string;
 	settingModelSelection: boolean;
+	workspaceOptions: readonly WorkspaceOption[];
+	workspaceCurrentId: string;
+	workspacePendingId?: string;
+	workspaceError?: string;
 	language: Language;
 }
 
@@ -140,6 +145,8 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 		settingPlanMode: false,
 		modelSelection: { ...DEFAULT_MODEL_SELECTION },
 		settingModelSelection: false,
+		workspaceOptions: [],
+		workspaceCurrentId: '',
 		language: detectInitialLanguage(),
 	});
 	const [focusToken, setFocusToken] = useState(0);
@@ -386,6 +393,21 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 					settingModelSelection: false,
 				}));
 				break;
+			case 'workspaceState':
+				setUi(current => {
+					const changed = current.workspaceCurrentId.length > 0
+						&& current.workspaceCurrentId !== message.currentId;
+					return {
+						...current,
+						workspaceOptions: message.options,
+						workspaceCurrentId: message.currentId,
+						workspacePendingId: message.pendingId,
+						workspaceError: message.error,
+						// Relative file mentions were resolved against the previous directory.
+						...(changed ? { composerFiles: [] } : {}),
+					};
+				});
+				break;
 			case 'workspaceFileDiff': {
 				const pending = pendingWorkspaceDiffs.current.get(message.requestId);
 				if (pending !== undefined) {
@@ -557,6 +579,19 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 			requestId: crypto.randomUUID(),
 			model: selection.model,
 			reasoningEffort: selection.reasoningEffort,
+		});
+	};
+
+	const selectWorkspace = (workspaceId: string): void => {
+		setUi(current => ({
+			...current,
+			workspacePendingId: workspaceId,
+			workspaceError: undefined,
+		}));
+		vscode.postMessage({
+			type: 'setWorkspace',
+			requestId: crypto.randomUUID(),
+			workspaceId,
 		});
 	};
 
@@ -786,9 +821,13 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 	}
 
 	const reconfiguringModel = ui.settingModelSelection && ui.runtimeStatus === 'initializing';
+	const reconfiguringWorkspace = ui.workspacePendingId !== undefined;
 	const restartingRuntimeAfterDelete = runtimeRestartAfterDelete
 		&& ui.runtimeStatus === 'initializing';
-	if (ui.runtimeStatus !== 'ready' && !reconfiguringModel && !restartingRuntimeAfterDelete) {
+	if (ui.runtimeStatus !== 'ready'
+		&& !reconfiguringModel
+		&& !reconfiguringWorkspace
+		&& !restartingRuntimeAfterDelete) {
 		return (
 			<I18nProvider language={ui.language}>
 			<RuntimeGate
@@ -958,6 +997,13 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 					: { modelSelectionError: ui.modelSelectionError })}
 				settingModelSelection={ui.settingModelSelection}
 				onSelectModelSelection={selectModelSelection}
+				workspaceOptions={ui.workspaceOptions}
+				workspaceCurrentId={ui.workspaceCurrentId}
+				{...(ui.workspacePendingId === undefined
+					? {}
+					: { workspacePendingId: ui.workspacePendingId })}
+				{...(ui.workspaceError === undefined ? {} : { workspaceError: ui.workspaceError })}
+				onSelectWorkspace={selectWorkspace}
 				onSend={send}
 				onStop={stop}
 				vscode={vscode}

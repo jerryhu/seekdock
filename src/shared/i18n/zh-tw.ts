@@ -230,6 +230,7 @@ export const zhTw = {
 	hostInvalidModel: '此模型或推理等級目前無法使用。',
 	hostBusyModel: '目前回答結束後才能切換模型。',
 	hostBusyWorkspace: '目前回答結束後才能切換工作目錄。',
+	hostWorkspaceSessionActive: '只能在新工作階段中切換工作目錄。',
 	hostWorkspaceUnavailable: '該工作目錄已無法使用。',
 	hostRuntimeNotReadyWorkspace: '執行環境正在啟動，暫時無法切換工作目錄。',
 	hostNoActiveAnswer: '目前沒有可以停止的回答。',

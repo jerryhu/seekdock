@@ -230,6 +230,7 @@ export const zhCn = {
 	hostInvalidModel: '该模型或推理等级当前不可用。',
 	hostBusyModel: '当前回答结束后才能切换模型。',
 	hostBusyWorkspace: '当前回答结束后才能切换工作目录。',
+	hostWorkspaceSessionActive: '只能在新会话中切换工作目录。',
 	hostWorkspaceUnavailable: '该工作目录已不可用。',
 	hostRuntimeNotReadyWorkspace: '运行环境正在启动，暂时无法切换工作目录。',
 	hostNoActiveAnswer: '当前没有可以停止的回答。',

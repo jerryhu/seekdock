@@ -484,7 +484,9 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 	};
 
 	const send = (text: string): void => {
-		if (ui.runtimeStatus !== 'ready') {
+		// A workspace switch replaces the runtime; the host queues the prompt
+		// behind that handshake instead of running it on the outgoing process.
+		if (ui.runtimeStatus !== 'ready' && ui.runtimeStatus !== 'initializing') {
 			return;
 		}
 		if (history.activeSessionId === undefined) {
@@ -844,6 +846,10 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 	const activeSession = history.sessions.find(
 		session => session.id === history.activeSessionId,
 	);
+	// DSH binds a session's sandbox root to the directory it was created in, so
+	// the picker only applies before this chat has a session: from the first
+	// prompt until the next new chat the working directory stays put.
+	const workspaceLocked = conversationOpen;
 
 	return (
 		<I18nProvider language={ui.language}>
@@ -962,7 +968,7 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 				busy={ui.busy}
 				cancelling={ui.cancelling}
 				configured={ui.configured}
-				runtimeReady={ui.runtimeStatus === 'ready'}
+				runtimeStatus={ui.runtimeStatus}
 				focusToken={focusToken}
 				initialDraft={initialDraft}
 				initialSkills={initialSkills}
@@ -999,6 +1005,7 @@ export function App({ store, vscode }: AppProps): JSX.Element {
 				onSelectModelSelection={selectModelSelection}
 				workspaceOptions={ui.workspaceOptions}
 				workspaceCurrentId={ui.workspaceCurrentId}
+				workspaceLocked={workspaceLocked}
 				{...(ui.workspacePendingId === undefined
 					? {}
 					: { workspacePendingId: ui.workspacePendingId })}

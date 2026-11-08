@@ -228,6 +228,7 @@ export const en = {
 	hostInvalidModel: 'That model or reasoning effort is currently unavailable.',
 	hostBusyModel: 'Finish the current response before changing the model.',
 	hostBusyWorkspace: 'Finish the current response before switching the working directory.',
+	hostWorkspaceSessionActive: 'The working directory can only be changed in a new session.',
 	hostWorkspaceUnavailable: 'That working directory is no longer available.',
 	hostRuntimeNotReadyWorkspace: 'The runtime is starting, so the working directory cannot be changed yet.',
 	hostNoActiveAnswer: 'There is no active response to stop.',

@@ -230,6 +230,7 @@ export const es = {
 	hostInvalidModel: 'Ese modelo o esfuerzo de razonamiento no está disponible actualmente.',
 	hostBusyModel: 'Termina la respuesta actual antes de cambiar el modelo.',
 	hostBusyWorkspace: 'Termina la respuesta actual antes de cambiar el directorio de trabajo.',
+	hostWorkspaceSessionActive: 'El directorio de trabajo solo se puede cambiar en una sesión nueva.',
 	hostWorkspaceUnavailable: 'Ese directorio de trabajo ya no está disponible.',
 	hostRuntimeNotReadyWorkspace: 'El entorno de ejecución se está iniciando, así que el directorio de trabajo aún no se puede cambiar.',
 	hostNoActiveAnswer: 'No hay ninguna respuesta activa que detener.',

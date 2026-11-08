@@ -230,6 +230,7 @@ export const fr = {
 	hostInvalidModel: 'Ce modèle ou effort de raisonnement n’est pas disponible actuellement.',
 	hostBusyModel: 'Terminez la réponse en cours avant de changer de modèle.',
 	hostBusyWorkspace: 'Terminez la réponse en cours avant de changer de répertoire de travail.',
+	hostWorkspaceSessionActive: 'Le répertoire de travail ne peut être modifié que dans une nouvelle session.',
 	hostWorkspaceUnavailable: 'Ce répertoire de travail n’est plus disponible.',
 	hostRuntimeNotReadyWorkspace: 'L’environnement d’exécution démarre, le répertoire de travail ne peut donc pas encore être changé.',
 	hostNoActiveAnswer: 'Aucune réponse active à arrêter.',

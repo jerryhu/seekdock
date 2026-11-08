@@ -19,7 +19,8 @@ import {
 	type ComposerSkill,
 } from '../shared/composer-skills.ts';
 import { buildPromptWithFiles } from '../shared/composer-files.ts';
-import type { ComposerFile, PermissionCatalog } from '../shared/rpc.ts';
+import { composerDecisions } from '../shared/composer-availability.ts';
+import type { ComposerFile, PermissionCatalog, RuntimeStatus } from '../shared/rpc.ts';
 import type { ModelSelection } from '../shared/model-selection.ts';
 import type { WorkspaceOption } from '../shared/workspaces.ts';
 import { ComposerAddMenu } from './composer-add-menu.tsx';
@@ -33,7 +34,7 @@ interface ComposerProps {
 	busy: boolean;
 	cancelling: boolean;
 	configured: boolean;
-	runtimeReady: boolean;
+	runtimeStatus: RuntimeStatus;
 	focusToken: number;
 	initialDraft: string;
 	initialSkills: readonly ComposerSkill[];
@@ -64,6 +65,8 @@ interface ComposerProps {
 	onSelectModelSelection: (selection: ModelSelection) => void;
 	workspaceOptions: readonly WorkspaceOption[];
 	workspaceCurrentId: string;
+	/** A conversation already owns the runtime; its directory is fixed. */
+	workspaceLocked: boolean;
 	workspacePendingId?: string;
 	workspaceError?: string;
 	onSelectWorkspace: (id: string) => void;
@@ -85,7 +88,7 @@ export function Composer({
 	busy,
 	cancelling,
 	configured,
-	runtimeReady,
+	runtimeStatus,
 	focusToken,
 	initialDraft,
 	initialSkills,
@@ -116,6 +119,7 @@ export function Composer({
 	onSelectModelSelection,
 	workspaceOptions,
 	workspaceCurrentId,
+	workspaceLocked,
 	workspacePendingId,
 	workspaceError,
 	onSelectWorkspace,
@@ -209,9 +213,13 @@ export function Composer({
 		queueMicrotask(() => input.current?.focus());
 	};
 
-	// Both changes recycle the runtime; every control that would start or
-	// reconfigure work must wait for the new process to become ready.
+	// Both changes recycle the runtime; every control that needs a live runtime
+	// waits for the new process. The draft and the send action do not.
 	const reconfiguring = settingModelSelection || workspacePendingId !== undefined;
+	const runtimeReady = runtimeStatus === 'ready';
+	// Typing stays available while the runtime is replaced; sending during the
+	// handshake is queued by the host instead of being dropped.
+	const { editable, sendable } = composerDecisions({ configured, busy, runtimeStatus });
 
 	const submit = (): void => {
 		const promptText = buildPromptWithSkills(
@@ -219,11 +227,7 @@ export function Composer({
 			selectedSkills.map(skill => skill.name),
 		);
 		const prompt = buildPromptWithFiles(promptText, files);
-		if (prompt.length === 0
-			|| busy
-			|| reconfiguring
-			|| !configured
-			|| !runtimeReady) {
+		if (prompt.length === 0 || !sendable) {
 			return;
 		}
 		onSend(prompt);
@@ -262,7 +266,7 @@ export function Composer({
 							{...(workspacePendingId === undefined
 								? {}
 								: { pendingId: workspacePendingId })}
-							disabled={busy || reconfiguring}
+							disabled={busy || reconfiguring || workspaceLocked}
 							onSelect={onSelectWorkspace}
 						/>
 					</div>
@@ -396,7 +400,7 @@ export function Composer({
 							? t('planPromptPlaceholder')
 							: t('promptPlaceholder')}
 					aria-label={t('promptInputLabel')}
-					disabled={!configured || !runtimeReady || reconfiguring}
+					disabled={!editable}
 					onInput={(event) => {
 						const value = event.currentTarget.value;
 						const query = slashQueryFromDraft(value);
@@ -537,9 +541,7 @@ export function Composer({
 									&& ((text.trim().length === 0
 											&& files.length === 0
 											&& selectedSkills.length === 0)
-										|| reconfiguring
-										|| !configured
-										|| !runtimeReady))}
+										|| !sendable))}
 							aria-label={sendLabel}
 							data-tooltip={sendLabel}
 							data-tooltip-align="end"

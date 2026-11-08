@@ -230,6 +230,7 @@ export const de = {
 	hostInvalidModel: 'Dieses Modell oder dieser Denkaufwand ist derzeit nicht verfügbar.',
 	hostBusyModel: 'Beenden Sie die aktuelle Antwort, bevor Sie das Modell ändern.',
 	hostBusyWorkspace: 'Beenden Sie die aktuelle Antwort, bevor Sie das Arbeitsverzeichnis ändern.',
+	hostWorkspaceSessionActive: 'Das Arbeitsverzeichnis lässt sich nur in einer neuen Sitzung ändern.',
 	hostWorkspaceUnavailable: 'Dieses Arbeitsverzeichnis ist nicht mehr verfügbar.',
 	hostRuntimeNotReadyWorkspace: 'Die Laufzeitumgebung startet, daher kann das Arbeitsverzeichnis noch nicht geändert werden.',
 	hostNoActiveAnswer: 'Es gibt keine aktive Antwort zum Anhalten.',

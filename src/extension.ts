@@ -136,6 +136,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 	private runtimeGeneration = 0;
 	private runtimeStatus: RuntimeStatus = 'idle';
 	private runtimeError: string | undefined;
+	/** Runtimes already detached from the composer but still exiting. */
+	private readonly retiringRuntimes = new Set<Promise<void>>();
 	private postChain: Promise<void> = Promise.resolve();
 	private readonly promptStore: SystemPromptStore;
 	private readonly mcpStore: McpServerStore;
@@ -389,6 +391,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			try {
 				await this.runtimeTask?.catch(() => {});
 				await this.runner?.dispose();
+				await Promise.allSettled([...this.retiringRuntimes]);
 				await this.approvalBroker?.dispose();
 				await this.planReviewBroker?.dispose();
 			} catch (error) {
@@ -569,6 +572,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			await this.postWorkspaceState();
 			return;
 		}
+		if (this.activeSessionId !== undefined) {
+			// The sandbox root of a live session cannot move, and switching would
+			// discard the conversation the user is looking at.
+			this.workspaceError = translate(this.language, 'hostWorkspaceSessionActive');
+			await this.postWorkspaceState();
+			return;
+		}
 		if (this.runtimeStatus === 'initializing' || this.workspaceSwitchTask !== undefined) {
 			this.workspaceError = translate(this.language, 'hostRuntimeNotReadyWorkspace');
 			await this.postWorkspaceState();
@@ -630,18 +640,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			if (options.startNewChat) {
 				this.resetActiveSessionState();
 				await this.postMessage({ type: 'newChat' });
-				await this.postSessionHistory();
 			}
-			const hadRuntime = this.runner !== undefined || this.runtimeTask !== undefined;
-			try {
-				await this.stopRuntimeForReconfiguration();
-			} finally {
-				// Even a failed close leaves no usable runtime for the old cwd.
-				this.runner = undefined;
-				this.runnerInitialization = undefined;
-			}
+			const hadRuntime = this.runner !== undefined
+				|| this.runtimeTask !== undefined
+				|| this.runnerInitialization !== undefined;
 			if (hadRuntime) {
-				await this.restartRuntimeFromStorage();
+				await this.restartRuntimeForWorkspace();
 			}
 			await this.postPermissionState();
 			await this.postPlanModeState();
@@ -887,6 +891,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			await this.postState();
 			return;
 		}
+		// A prompt can arrive while the picker is still moving the runtime to
+		// the new directory; waiting here keeps the turn off the outgoing
+		// sandbox root. The handshake below then finds a settled runtime.
+		await this.workspaceSwitchTask?.catch(error => {
+			console.error('SeekDock: failed to finish the working-directory switch', error);
+		});
 		if (!this.runtimeReady()) {
 			const initialized = await this.beginRuntimeInitialization(apiKey);
 			if (!initialized) {
@@ -2046,17 +2056,66 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 		return task.then(() => this.runtimeStatus === 'ready');
 	}
 
-	private async stopRuntimeForReconfiguration(): Promise<void> {
+	/**
+	 * Replace the runtime so new sessions bind the current directory.
+	 *
+	 * The incoming process starts before the outgoing one exits: both only share
+	 * the immutable DSH home tree, the outgoing runtime owns no session the
+	 * incoming one can touch, and every bridge socket is named per runner.
+	 * Overlapping them removes the whole teardown from the switch.
+	 */
+	private async restartRuntimeForWorkspace(): Promise<void> {
+		if (this.runtimeTask !== undefined) {
+			// Finish the running handshake first so the runtime it built is the
+			// one reaped here; it was started for the previous directory.
+			await this.stopRuntimeForReconfiguration();
+			await this.restartRuntimeFromStorage();
+			return;
+		}
+		const retirement = this.detachRuntime();
+		await Promise.all([retirement, this.restartRuntimeFromStorage()]);
+	}
+
+	/**
+	 * Detach the attached runtime and reap its process in the background.
+	 *
+	 * @returns settlement of that teardown; never rejects.
+	 * @throws when a turn is running, keeping the guard `HarnessRunner.invalidate`
+	 * provided for reconfiguration callers.
+	 */
+	private detachRuntime(): Promise<void> {
+		if (this.runner?.busy === true) {
+			throw new Error('The API key cannot be changed while SeekDock is answering.');
+		}
+		const runner = this.runner;
+		const initialization = this.runnerInitialization;
+		const task = this.runtimeTask;
 		this.runtimeGeneration += 1;
 		if (this.permissionRefreshTimer !== undefined) {
 			clearTimeout(this.permissionRefreshTimer);
 			this.permissionRefreshTimer = undefined;
 		}
-		await this.runtimeTask;
-		await this.runner?.invalidate();
+		this.runner = undefined;
+		this.runnerInitialization = undefined;
 		this.runtimeTask = undefined;
 		this.runtimeStatus = 'idle';
 		this.runtimeError = undefined;
+		const retirement = (async () => {
+			await task?.catch(() => {});
+			const retired = runner ?? await initialization?.catch(() => undefined);
+			await retired?.dispose();
+		})().catch(error => {
+			console.error('SeekDock: failed to stop the previous runtime', error);
+		}).finally(() => {
+			this.retiringRuntimes.delete(retirement);
+		});
+		this.retiringRuntimes.add(retirement);
+		return retirement;
+	}
+
+	private async stopRuntimeForReconfiguration(): Promise<void> {
+		await this.runtimeTask;
+		await this.detachRuntime();
 	}
 
 	private runtimeReady(): boolean {

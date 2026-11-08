@@ -230,6 +230,7 @@ export const ja = {
 	hostInvalidModel: 'そのモデルまたは推論レベルは現在利用できません。',
 	hostBusyModel: '現在の回答が終了してからモデルを変更してください。',
 	hostBusyWorkspace: '現在の回答が終了してから作業ディレクトリを変更してください。',
+	hostWorkspaceSessionActive: '作業ディレクトリは新しいセッションでのみ変更できます。',
 	hostWorkspaceUnavailable: 'その作業ディレクトリは利用できなくなりました。',
 	hostRuntimeNotReadyWorkspace: '実行環境を起動中です。作業ディレクトリはまだ変更できません。',
 	hostNoActiveAnswer: '停止できる回答がありません。',

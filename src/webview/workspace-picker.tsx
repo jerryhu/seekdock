@@ -15,6 +15,7 @@ interface WorkspacePickerProps {
 	currentId: string;
 	/** Option being applied while the runtime restarts. */
 	pendingId?: string;
+	/** Inert while a turn runs, the runtime restarts, or a session owns the directory. */
 	disabled: boolean;
 	onSelect: (id: string) => void;
 }
@@ -73,6 +74,11 @@ export function WorkspacePicker({
 
 	const choose = (option: WorkspaceOption): void => {
 		setOpen(false);
+		// A turn or a session can arrive while the menu is still open, so the
+		// lock must win over the click that lands afterwards.
+		if (disabled) {
+			return;
+		}
 		if (option.id === currentId && !pendingActive) {
 			return;
 		}

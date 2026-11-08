@@ -230,6 +230,7 @@ export const ko = {
 	hostInvalidModel: '해당 모델 또는 추론 수준은 현재 사용할 수 없습니다.',
 	hostBusyModel: '현재 응답이 끝난 후 모델을 변경하세요.',
 	hostBusyWorkspace: '현재 응답이 끝난 후 작업 디렉터리를 변경하세요.',
+	hostWorkspaceSessionActive: '새 세션에서만 작업 디렉터리를 변경할 수 있습니다.',
 	hostWorkspaceUnavailable: '해당 작업 디렉터리를 더 이상 사용할 수 없습니다.',
 	hostRuntimeNotReadyWorkspace: '실행 환경을 시작하는 중이라 작업 디렉터리를 아직 변경할 수 없습니다.',
 	hostNoActiveAnswer: '중지할 수 있는 응답이 없습니다.',

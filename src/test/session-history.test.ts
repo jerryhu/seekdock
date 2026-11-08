@@ -2,6 +2,7 @@ import * as assert from 'node:assert';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Context } from '@deepseek-ai/cordis';
 import {
 	SessionId,
 	SESSION_FORMAT_VERSION,
@@ -9,13 +10,16 @@ import {
 	type SessionEvent,
 	type SessionHeader,
 } from '@deepseek-ai/dsh-session';
+import { apply as applyJsonlPersistence } from '@deepseek-ai/dsh-session-persistence-jsonl';
 import { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm';
 import type {} from '@deepseek-ai/dsh-workspace-changes';
 import {
 	removeSessionArtifacts,
+	SessionHistoryStore,
 	summarizeSession,
 	transcriptFromSessionEvents,
 } from '../host/session-history.ts';
+import { LocalizedError } from '../shared/i18n/index.ts';
 import type { WorkspaceChangeSet } from '../shared/workspace-changes.ts';
 
 const storedChanges: WorkspaceChangeSet = {
@@ -506,7 +510,69 @@ suite('Session history', () => {
 			await rm(root, { recursive: true, force: true });
 		}
 	});
+
+	test('deletes the selected stored session and keeps the others readable', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'seekdock-session-store-delete-'));
+		const dshHome = join(root, 'dsh-home');
+		const sessionsRoot = join(dshHome, 'sessions');
+
+		try {
+			await storeSession(sessionsRoot, 'seekdock-target', 'Delete me');
+			await storeSession(sessionsRoot, 'seekdock-retained', 'Keep me');
+			const store = new SessionHistoryStore({ dshHome, sessionsRoot });
+
+			await store.delete('seekdock-target');
+
+			assert.deepStrictEqual(
+				(await store.list()).map(session => session.id),
+				['seekdock-retained'],
+			);
+			const retained = await store.load('seekdock-retained');
+			assert.deepStrictEqual(
+				retained.messages.map(message => message.kind === 'user' ? message.text : message.kind),
+				['Keep me'],
+			);
+			await assert.rejects(
+				store.delete('seekdock-missing'),
+				(error: unknown) => error instanceof LocalizedError
+					&& error.key === 'hostSessionNotFound',
+			);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
 });
+
+/**
+ * Persist one complete session through DSH's own JSONL writer, so the history
+ * store reads exactly what the runtime would have written.
+ *
+ * @param sessionsRoot - `<dshHome>/sessions` the runtime uses.
+ * @param id - stored session identity.
+ * @param text - first human prompt of that session.
+ */
+async function storeSession(sessionsRoot: string, id: string, text: string): Promise<void> {
+	const context = new Context();
+	await applyJsonlPersistence(context, { root: sessionsRoot, compression: 'zstd' });
+	const persistence = context.get('sessionPersistence');
+	assert.ok(persistence !== undefined, 'JSONL session persistence must be registered');
+	const handle = await persistence.create({
+		version: SESSION_FORMAT_VERSION,
+		id: SessionId(id),
+		createdAt: 1,
+		cwd: '/workspace',
+		isSeeded: false,
+	});
+	try {
+		await handle.append([
+			{ type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
+			userMessage(1, text),
+		]);
+		await handle.flush();
+	} finally {
+		await handle.close();
+	}
+}
 
 function assistantText(seq: number, step: number, text: string): SessionEvent {
 	return {

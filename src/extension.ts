@@ -741,10 +741,17 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 			if (this.runner?.busy) {
 				throw new LocalizedError('hostBusyDeleteSession');
 			}
-			await this.runner?.invalidate();
 			const wasActive = this.activeSessionId === message.sessionId;
-			if (!wasActive && this.activeSessionId !== undefined) {
-				this.resumeActiveSession = true;
+			// DSH holds a write lease only for a session it has live; every other
+			// session is a JSONL file nobody is appending to. Recycling the runtime
+			// (and resuming the active session through a fresh handshake) costs
+			// seconds, so it follows that lease instead of every deletion.
+			const recycleRuntime = this.runner?.isSessionLive(message.sessionId) === true;
+			if (recycleRuntime) {
+				await this.runner?.invalidate();
+				if (!wasActive && this.activeSessionId !== undefined) {
+					this.resumeActiveSession = true;
+				}
 			}
 			await this.getHistoryStore().delete(message.sessionId);
 			try {
@@ -765,10 +772,16 @@ class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable,
 					? {}
 					: { activeSessionId: this.activeSessionId }),
 			});
+			// The Webview drops the row on that acknowledgement; everything left
+			// here is resynchronisation, so it must not hold the deletion back.
+			if (recycleRuntime) {
+				await this.restartRuntimeFromStorage();
+			}
 			await this.postSessionHistory();
-			await this.restartRuntimeFromStorage();
-			await this.postPermissionState();
-			await this.postPlanModeState();
+			if (recycleRuntime) {
+				await this.postPermissionState();
+				await this.postPlanModeState();
+			}
 		} catch (error) {
 			await this.postMessage({
 				type: 'sessionDeleteError',

@@ -103,13 +103,20 @@ export class SessionHistoryStore {
 
 	/**
 	 * Permanently remove one persisted session and its derived projection cache.
-	 * The caller must stop the DSH runtime first so its write lease is released.
+	 * The caller must release any live DSH write lease on this session first,
+	 * because the runtime may still be appending to its log.
 	 *
 	 * @param id - session id selected from the current history list.
 	 */
 	async delete(id: string): Promise<void> {
-		const sessions = await this.list();
-		if (!sessions.some(session => session.id === id)) {
+		// Stored headers are enough to prove the session is one of ours: replaying
+		// every log here made deletion cost grow with the whole stored history
+		// instead of the one session being removed.
+		const persistence = await this.ensurePersistence();
+		const snapshots = await persistence.list();
+		const exists = snapshots.some(snapshot => snapshot.header.id === id
+			&& snapshot.header.origin !== 'subagent');
+		if (!exists) {
 			throw new LocalizedError('hostSessionNotFound');
 		}
 		await removeSessionArtifacts(this.options, id);
